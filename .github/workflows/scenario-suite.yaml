@@ -46,12 +46,12 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          token: ${{ secrets.CASCADE_STATE_TOKEN }}
+          token: ${{ secrets.CASCADE_STATE_TEST_TOKEN }}
 
       - name: Setup cascade CLI
         uses: stablekernel/cascade/.github/actions/setup-cli@v0.1.0
         with:
-          token: ${{ secrets.CASCADE_STATE_TOKEN }}
+          token: ${{ secrets.CASCADE_STATE_TEST_TOKEN }}
           version: v0.1.0
 
       - name: Configure git identity
@@ -168,7 +168,7 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Reset repository
         env:
-          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TEST_TOKEN }}
         run: |
           source "$RUNNER_TEMP/helpers.sh"
           cascade reset --state --push -c .github/manifest.yaml || \
@@ -185,7 +185,7 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Stage 1 - commit to trunk
         env:
-          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TEST_TOKEN }}
         run: |
           source "$RUNNER_TEMP/helpers.sh"
           mkdir -p src
@@ -198,7 +198,7 @@ jobs:
 
       - name: Stage 1 - await orchestrate and assert draft
         env:
-          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TEST_TOKEN }}
         run: |
           source "$RUNNER_TEMP/helpers.sh"
           wait_for_workflow orchestrate.yaml
@@ -226,7 +226,7 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Stage 2 - promote test to staging
         env:
-          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TEST_TOKEN }}
         run: |
           source "$RUNNER_TEMP/helpers.sh"
           gh workflow run promote.yaml -f mode=test-to-staging \
@@ -247,7 +247,7 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Stage 3 - promote staging to prod
         env:
-          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TEST_TOKEN }}
         run: |
           source "$RUNNER_TEMP/helpers.sh"
           gh workflow run promote.yaml -f mode=staging-to-prod \
@@ -269,7 +269,7 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Assert auto_commits advanced trunk
         env:
-          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TEST_TOKEN }}
         run: |
           source "$RUNNER_TEMP/helpers.sh"
           git fetch origin main --quiet
