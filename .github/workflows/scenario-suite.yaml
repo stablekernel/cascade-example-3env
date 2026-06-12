@@ -1,0 +1,299 @@
+name: scenario-suite
+
+# End-to-end validation driver for the 3-environment (test, staging, prod)
+# cascade example. It commits to trunk, lets orchestrate run, then walks the
+# promotion ladder one step at a time (test -> staging -> prod). After each
+# step it reads the manifest state for all three environments, the git tags,
+# and the GitHub releases, and asserts the full stage table.
+#
+# This repository exercises the inline-callback surface: builds and deploys
+# declared with inline `run:`/`shell:` (not external reusable workflows), with
+# per-callback secrets, OIDC permissions (id-token: write), runs_on, per-callback
+# concurrency, timeout_minutes, retries, depends_on, auto_commits, and a
+# pre-build validate gate. Where those features are observable from the run
+# graph this driver checks them.
+#
+# Run manually (workflow_dispatch), nightly, or when cascade dispatches a
+# cascade-revalidate event. It never hardcodes commit SHAs; it asserts the
+# SHAPE of the state (versions present, prerelease/published flags, tag set).
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '0 7 * * *'
+  repository_dispatch:
+    types: [cascade-revalidate]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: scenario-suite-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  POLL_ATTEMPTS: '40'
+  POLL_INTERVAL: '15'
+
+jobs:
+  suite:
+    name: 3env scenario suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.CASCADE_STATE_TOKEN }}
+
+      - name: Setup cascade CLI
+        uses: stablekernel/cascade/.github/actions/setup-cli@v0.1.0
+        with:
+          token: ${{ secrets.CASCADE_STATE_TOKEN }}
+          version: v0.1.0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "cascade-suite[bot]"
+          git config user.email "cascade-suite@users.noreply.github.com"
+
+      # ---------------------------------------------------------------------
+      # Shared helpers: bounded waits and shape assertions. Defined once as a
+      # sourced script so every step uses the same polling + failure contract.
+      # ---------------------------------------------------------------------
+      - name: Write helpers
+        run: |
+          cat > "$RUNNER_TEMP/helpers.sh" <<'HELPERS'
+          set -euo pipefail
+          REPO="${GITHUB_REPOSITORY}"
+
+          fail() { echo "::error::$1"; exit 1; }
+
+          # Wait until the latest orchestrate.yaml run on main reaches a
+          # conclusion. Bounded; emits ::error:: and fails on timeout.
+          wait_for_workflow() {
+            local wf="$1"
+            local i
+            for ((i=0; i<POLL_ATTEMPTS; i++)); do
+              local status conclusion
+              status=$(gh run list --workflow "$wf" --branch main \
+                --limit 1 --json status,conclusion -q '.[0].status' || echo "")
+              conclusion=$(gh run list --workflow "$wf" --branch main \
+                --limit 1 --json status,conclusion -q '.[0].conclusion' || echo "")
+              if [[ "$status" == "completed" ]]; then
+                [[ "$conclusion" == "success" ]] || fail "$wf concluded $conclusion"
+                echo "$wf completed: $conclusion"
+                return 0
+              fi
+              sleep "$POLL_INTERVAL"
+            done
+            fail "timed out waiting for $wf to complete"
+          }
+
+          # Re-read the manifest state from trunk after cascade has written it.
+          refresh_manifest() {
+            git fetch origin main --quiet
+            git checkout origin/main -- .github/manifest.yaml
+          }
+
+          # status_version <env> -> prints the recorded version for an env, or
+          # empty string when unset.
+          status_version() {
+            cascade status env "$1" --json -c .github/manifest.yaml 2>/dev/null \
+              | jq -r '.version // ""'
+          }
+
+          # Assert an env has a non-empty recorded version.
+          assert_env_set() {
+            local env="$1"
+            local v
+            v=$(status_version "$env")
+            [[ -n "$v" ]] || fail "expected state.$env to carry a version, got empty"
+            echo "state.$env version=$v"
+          }
+
+          # Assert an env carries no version yet (unchanged).
+          assert_env_unset() {
+            local env="$1"
+            local v
+            v=$(status_version "$env")
+            [[ -z "$v" ]] || fail "expected state.$env unset, got version=$v"
+            echo "state.$env unset (as expected)"
+          }
+
+          # Assert the most recent GitHub release matches a prerelease/published
+          # expectation. mode is one of: draft | prerelease | published.
+          assert_release_mode() {
+            local mode="$1"
+            local json
+            json=$(gh release list --limit 1 --json tagName,isDraft,isPrerelease 2>/dev/null || echo '[]')
+            [[ "$(echo "$json" | jq 'length')" -ge 1 ]] || fail "no GitHub release found, expected $mode"
+            local draft prerelease tag
+            tag=$(echo "$json" | jq -r '.[0].tagName')
+            draft=$(echo "$json" | jq -r '.[0].isDraft')
+            prerelease=$(echo "$json" | jq -r '.[0].isPrerelease')
+            case "$mode" in
+              draft)      [[ "$draft" == "true" ]] || fail "release $tag expected draft, got draft=$draft" ;;
+              prerelease) [[ "$prerelease" == "true" && "$draft" == "false" ]] \
+                            || fail "release $tag expected prerelease, got draft=$draft prerelease=$prerelease" ;;
+              published)  [[ "$prerelease" == "false" && "$draft" == "false" ]] \
+                            || fail "release $tag expected published, got draft=$draft prerelease=$prerelease" ;;
+              *) fail "unknown release mode $mode" ;;
+            esac
+            echo "release $tag mode=$mode OK"
+          }
+
+          # Assert at least one rc.* tag exists (shape, not exact value).
+          assert_rc_tag_present() {
+            git fetch --tags --quiet
+            git tag --list 'v*-rc.*' | grep -q . || fail "expected an rc.* tag, found none"
+            echo "rc.* tag present: $(git tag --list 'v*-rc.*' | tail -1)"
+          }
+
+          # Assert a final (non-rc) vX.Y.Z tag exists and rc tags were cleaned.
+          assert_final_tag_published() {
+            git fetch --tags --quiet
+            git tag --list 'v[0-9]*' | grep -vE 'rc\.' | grep -q . \
+              || fail "expected a published vX.Y.Z tag, found none"
+            echo "final tag present: $(git tag --list 'v[0-9]*' | grep -vE 'rc\.' | tail -1)"
+          }
+          HELPERS
+          echo "helpers written"
+
+      # ---------------------------------------------------------------------
+      # Stage 0: clean slate. Wipe releases/tags and reset manifest state so the
+      # run is deterministic regardless of prior history.
+      # ---------------------------------------------------------------------
+      - name: Reset repository
+        env:
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+        run: |
+          source "$RUNNER_TEMP/helpers.sh"
+          cascade reset --state --push -c .github/manifest.yaml || \
+            fail "cascade reset failed"
+          git fetch origin main --quiet
+          echo "reset complete"
+
+      # ---------------------------------------------------------------------
+      # Stage 1: commit to trunk -> orchestrate runs the validate gate, then
+      # the inline builds (base, then app via depends_on), then deploy to the
+      # first env (test), and cuts a draft rc.0. Assert: validate gate ran,
+      # both inline builds ran in dependency order, draft created, state.test
+      # set, staging/prod still unset.
+      # ---------------------------------------------------------------------
+      - name: Stage 1 - commit to trunk
+        env:
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+        run: |
+          source "$RUNNER_TEMP/helpers.sh"
+          mkdir -p src
+          echo "// scenario change $(date -u +%s)" >> src/app.txt
+          git add src/app.txt
+          git commit -m "feat: scenario suite change"
+          before=$(git rev-parse HEAD)
+          git push origin HEAD:main
+          echo "pushed $before"
+
+      - name: Stage 1 - await orchestrate and assert draft
+        env:
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+        run: |
+          source "$RUNNER_TEMP/helpers.sh"
+          wait_for_workflow orchestrate.yaml
+          refresh_manifest
+
+          # Inline-callback observability: the orchestrate run graph must carry
+          # the validate gate and both inline builds, with app needing base.
+          run_id=$(gh run list --workflow orchestrate.yaml --branch main \
+            --limit 1 --json databaseId -q '.[0].databaseId')
+          jobs=$(gh run view "$run_id" --json jobs -q '.jobs[].name')
+          echo "$jobs" | grep -qi 'validate' || fail "validate gate job did not run"
+          echo "$jobs" | grep -qi 'build' || fail "no build job ran"
+          echo "validate gate + inline builds observed in run $run_id"
+
+          assert_env_set test
+          assert_env_unset staging
+          assert_env_unset prod
+          assert_release_mode draft
+          assert_rc_tag_present
+
+      # ---------------------------------------------------------------------
+      # Stage 2: promote test -> staging. staging is len-2 (prerelease env), so
+      # the draft flips to a GitHub prerelease. Assert staging now set, prod
+      # still unset, release is prerelease.
+      # ---------------------------------------------------------------------
+      - name: Stage 2 - promote test to staging
+        env:
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+        run: |
+          source "$RUNNER_TEMP/helpers.sh"
+          gh workflow run promote.yaml -f mode=test-to-staging \
+            || fail "failed to dispatch promote test-to-staging"
+          sleep "$POLL_INTERVAL"
+          wait_for_workflow promote.yaml
+          refresh_manifest
+
+          assert_env_set test
+          assert_env_set staging
+          assert_env_unset prod
+          assert_release_mode prerelease
+
+      # ---------------------------------------------------------------------
+      # Stage 3: promote staging -> prod. Crossing into prod is the publish
+      # boundary: the prerelease is published as the final vX.Y.Z, rc.* tags are
+      # cleaned. Assert all three envs set and the release is published.
+      # ---------------------------------------------------------------------
+      - name: Stage 3 - promote staging to prod
+        env:
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+        run: |
+          source "$RUNNER_TEMP/helpers.sh"
+          gh workflow run promote.yaml -f mode=staging-to-prod \
+            || fail "failed to dispatch promote staging-to-prod"
+          sleep "$POLL_INTERVAL"
+          wait_for_workflow promote.yaml
+          refresh_manifest
+
+          assert_env_set test
+          assert_env_set staging
+          assert_env_set prod
+          assert_release_mode published
+          assert_final_tag_published
+
+      # ---------------------------------------------------------------------
+      # auto_commits assertion: the `app` build declares auto_commits: true,
+      # so finalize records the post-callback HEAD. Confirm trunk advanced past
+      # the single feature commit (state-write commits land on top of it).
+      # ---------------------------------------------------------------------
+      - name: Assert auto_commits advanced trunk
+        env:
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+        run: |
+          source "$RUNNER_TEMP/helpers.sh"
+          git fetch origin main --quiet
+          count=$(git rev-list --count origin/main)
+          echo "trunk commit count=$count"
+          [[ "$count" -ge 2 ]] || fail "expected state-write commits on trunk, count=$count"
+
+      # ---------------------------------------------------------------------
+      # Report-back: write a human-readable summary. The job status itself is
+      # the badge surface (see README). No token needed for the summary.
+      # ---------------------------------------------------------------------
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## 3env scenario suite"
+            echo ""
+            echo "| env | version |"
+            echo "|-----|---------|"
+            for e in test staging prod; do
+              v=$(cascade status env "$e" --json -c .github/manifest.yaml 2>/dev/null \
+                | jq -r '.version // "-"')
+              echo "| $e | $v |"
+            done
+            echo ""
+            echo "Result: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"

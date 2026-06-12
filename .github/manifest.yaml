@@ -1,0 +1,43 @@
+ci:
+  config:
+    schema_version: 1
+    trunk_branch: main
+    cli_version: v0.1.0
+    state_token: ${{ secrets.CASCADE_STATE_TOKEN }}
+    manifest_file: .github/manifest.yaml
+    manifest_key: ci
+    environments: [test, staging, prod]
+    triggers: [src/**]
+    validate:
+      run: 'echo "validating" && sleep 1'
+      shell: bash
+      triggers: [src/**]
+      on_failure: abort
+      retries: 1
+    builds:
+      - name: base
+        run: 'echo "build base" && sleep 2'
+        shell: bash
+        triggers: []
+        runs_on: ubuntu-latest
+        timeout_minutes: 10
+        retries: 2
+        concurrency:
+          group: build-base-${{ github.ref }}
+          cancel_in_progress: true
+        permissions:
+          contents: read
+          id-token: write
+        secrets: inherit
+      - name: app
+        run: 'echo "build app" && sleep 2'
+        shell: bash
+        triggers: []
+        depends_on: [base]
+        auto_commits: true
+    deploys:
+      - name: app
+        run: 'echo "deploy $ENVIRONMENT" && sleep 2'
+        shell: bash
+        triggers: []
+  state: {}
