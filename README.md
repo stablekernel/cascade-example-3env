@@ -64,5 +64,5 @@ bounded and a timeout emits a workflow error; a run summary is written to the
 job summary.
 
 It runs on demand, nightly, and when cascade asks the repo to re-validate after
-a new CLI release. It needs a `CASCADE_STATE_TOKEN` repository secret with
+a new CLI release. It needs a `CASCADE_STATE_TEST_TOKEN` repository secret with
 permission to write trunk state and dispatch workflows.

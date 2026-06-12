@@ -248,7 +248,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
       - name: Update Manifest
         env:
-          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TEST_TOKEN }}
           HEAD_SHA: ${{ needs.setup.outputs.head_sha }}
           VERSION: ${{ needs.setup.outputs.version }}
           ENVIRONMENT: ${{ github.event.inputs.environment || 'test' }}
