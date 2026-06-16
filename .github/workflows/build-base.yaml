@@ -18,9 +18,6 @@ on:
       artifact_id:
         description: Identifier of the produced base artifact
         value: ${{ jobs.run.outputs.artifact_id }}
-concurrency:
-  group: build-base-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
   run:
     runs-on: ubuntu-latest
