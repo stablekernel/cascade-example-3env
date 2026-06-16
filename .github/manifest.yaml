@@ -3,7 +3,7 @@ ci:
     schema_version: 1
     trunk_branch: main
     cli_version: v0.1.0
-    state_token: ${{ secrets.CASCADE_STATE_TEST_TOKEN }}
+    state_token: ${{ secrets.CASCADE_STATE_TOKEN }}
     manifest_file: .github/manifest.yaml
     manifest_key: ci
     environments: [test, staging, prod]

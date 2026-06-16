@@ -332,7 +332,7 @@ jobs:
       - name: Finalize Promotion
         if: ${{ github.event.inputs.dry_run != 'true' }}
         env:
-          GH_TOKEN: ${{ secrets.CASCADE_STATE_TEST_TOKEN }}
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PROMOTION_RESULT: ${{ needs.preflight.outputs.promotion_result }}
           DEPLOY_RESULT_APP: ${{ needs.deploy-app.result }}
