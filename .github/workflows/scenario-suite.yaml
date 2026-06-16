@@ -94,23 +94,34 @@ jobs:
           }
 
           # Re-read the manifest state from trunk after cascade has written it.
+          # orchestrate's finalize job pushes the state as a separate
+          # "chore: update state [skip ci]" commit on main. gh run watch can
+          # return before that push is fetchable, so hard-reset the local tree
+          # to origin/main rather than checking out a single path.
           refresh_manifest() {
             git fetch origin main --quiet
-            git checkout origin/main -- .github/manifest.yaml
+            git reset --hard origin/main
           }
 
           # status_version <env> -> prints the recorded version for an env, or
           # empty string when unset.
           status_version() {
             cascade status env "$1" --json -c .github/manifest.yaml 2>/dev/null \
-              | jq -r '.version // ""'
+              | jq -r '.state.version // ""'
           }
 
-          # Assert an env has a non-empty recorded version.
+          # Assert an env has a non-empty recorded version. The finalize state
+          # push lands as an async [skip ci] commit, so poll trunk until it
+          # appears rather than racing the first read.
           assert_env_set() {
             local env="$1"
             local v
-            v=$(status_version "$env")
+            for _ in $(seq 1 20); do
+              refresh_manifest
+              v=$(status_version "$env")
+              [[ -n "$v" ]] && break
+              sleep 3
+            done
             [[ -n "$v" ]] || fail "expected state.$env to carry a version, got empty"
             echo "state.$env version=$v"
           }
