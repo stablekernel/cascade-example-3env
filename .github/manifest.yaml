@@ -9,35 +9,26 @@ ci:
     environments: [test, staging, prod]
     triggers: [src/**]
     validate:
-      run: 'echo "validating" && sleep 1'
-      shell: bash
+      workflow: .github/workflows/validate.yaml
       triggers: [src/**]
       on_failure: abort
       retries: 1
     builds:
       - name: base
-        run: 'echo "build base" && sleep 2'
-        shell: bash
+        workflow: .github/workflows/build-base.yaml
         triggers: []
-        runs_on: ubuntu-latest
-        timeout_minutes: 10
         retries: 2
-        concurrency:
-          group: build-base-${{ github.ref }}
-          cancel_in_progress: true
         permissions:
           contents: read
           id-token: write
         secrets: inherit
       - name: app
-        run: 'echo "build app" && sleep 2'
-        shell: bash
+        workflow: .github/workflows/build-app.yaml
         triggers: []
         depends_on: [base]
         auto_commits: true
     deploys:
       - name: app
-        run: 'echo "deploy $ENVIRONMENT" && sleep 2'
-        shell: bash
+        workflow: .github/workflows/deploy-app.yaml
         triggers: []
   state: {}

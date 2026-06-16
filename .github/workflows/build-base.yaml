@@ -1,0 +1,39 @@
+name: build-base
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: false
+        type: string
+      sha:
+        required: false
+        type: string
+      version:
+        required: false
+        type: string
+      target_env:
+        required: false
+        type: string
+    outputs:
+      artifact_id:
+        description: Identifier of the produced base artifact
+        value: ${{ jobs.run.outputs.artifact_id }}
+concurrency:
+  group: build-base-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      artifact_id: ${{ steps.build.outputs.artifact_id }}
+    steps:
+      - name: Stub build base
+        id: build
+        run: |
+          echo "build base environment=${{ inputs.environment }} sha=${{ inputs.sha }} version=${{ inputs.version }}"
+          echo "artifact_id=base-${{ inputs.sha }}" >> "$GITHUB_OUTPUT"
+          sleep 2

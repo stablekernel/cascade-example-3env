@@ -198,6 +198,9 @@ jobs:
       base_sha: ${{ steps.ctx.outputs.base_sha }}
       rollback_sha: ${{ steps.ctx.outputs.rollback_sha }}
     steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Derive target environment and hotfix SHAs
         id: ctx
         env:
@@ -207,36 +210,35 @@ jobs:
           TARGET_ENV="${BASE_REF#env/}"
           FIX_SHA=$(printf '%s\n' "$PR_BODY" | grep -m1 '^Cascade-Hotfix-Source:' | sed 's/^Cascade-Hotfix-Source:[[:space:]]*//' || true)
           BASE_SHA=$(printf '%s\n' "$PR_BODY" | grep -m1 '^Cascade-Hotfix-Base:' | sed 's/^Cascade-Hotfix-Base:[[:space:]]*//' || true)
+          MANIFEST_FILE=".github/manifest.yaml"
+          MANIFEST_KEY="ci"
+          ROLLBACK_SHA=$(yq eval ".$MANIFEST_KEY.state.${TARGET_ENV}.sha // \"\"" "$MANIFEST_FILE")
+          if [ "$ROLLBACK_SHA" = "null" ]; then ROLLBACK_SHA=""; fi
           {
             echo "target_env=${TARGET_ENV}"
             echo "fix_sha=${FIX_SHA}"
             echo "base_sha=${BASE_SHA}"
-            echo "rollback_sha="
+            echo "rollback_sha=${ROLLBACK_SHA}"
           } >> "$GITHUB_OUTPUT"
   build-base:
     name: Build base
     needs: context
     if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'cascade-hotfix')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
-      - name: Run build base
-        run: |
-          echo "build base" && sleep 2
+    uses: ./.github/workflows/build-base.yaml
+    with:
+      sha: ${{ github.event.pull_request.merge_commit_sha }}
+      target_env: ${{ needs.context.outputs.target_env }}
+    secrets: inherit
+
   build-app:
     name: Build app
     needs: context
     if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'cascade-hotfix')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
-      - name: Run build app
-        run: |
-          echo "build app" && sleep 2
+    uses: ./.github/workflows/build-app.yaml
+    with:
+      sha: ${{ github.event.pull_request.merge_commit_sha }}
+      target_env: ${{ needs.context.outputs.target_env }}
+
   deploy-app:
     name: Deploy app
     needs: [context, build-base, build-app]
@@ -249,7 +251,7 @@ jobs:
           DEPLOY_ENV: ${{ needs.context.outputs.target_env }}
           DEPLOY_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
-          echo "deploy $ENVIRONMENT" && sleep 2
+          echo "deploy app via ./.github/workflows/deploy-app.yaml to $DEPLOY_ENV at $DEPLOY_SHA"
   rollback-app:
     name: Rollback app
     needs: [context, deploy-app]

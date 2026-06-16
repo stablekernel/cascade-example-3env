@@ -69,29 +69,19 @@ jobs:
   validate:
     name: Validate (validate)
     needs: [setup]
-    timeout-minutes: 30
-    runs-on: ubuntu-latest
-    steps:
-      - name: Validate (validate)
-        env:
-          ENVIRONMENT: ${{ github.event.inputs.environment || 'test' }}
-        shell: bash
-        run: |
-          echo "validating" && sleep 1
+    uses: ./.github/workflows/validate.yaml
+    with:
+      environment: ${{ github.event.inputs.environment || 'test' }}
+      sha: ${{ needs.setup.outputs.head_sha }}
 
   validate-retry-1:
     name: Validate (validate) - Retry 1
     needs: [setup, validate]
     if: needs.validate.result == 'failure'
-    timeout-minutes: 30
-    runs-on: ubuntu-latest
-    steps:
-      - name: Validate (validate)
-        env:
-          ENVIRONMENT: ${{ github.event.inputs.environment || 'test' }}
-        shell: bash
-        run: |
-          echo "validating" && sleep 1
+    uses: ./.github/workflows/validate.yaml
+    with:
+      environment: ${{ github.event.inputs.environment || 'test' }}
+      sha: ${{ needs.setup.outputs.head_sha }}
 
   build-base:
     name: Build (base)
@@ -99,61 +89,31 @@ jobs:
     if: |
       needs.setup.outputs.run_build_base == 'true' &&
       needs.validate.result == 'success'
-    timeout-minutes: 10
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    concurrency:
-      group: build-base-${{ github.ref }}
-      cancel-in-progress: true
-    steps:
-      - name: Build (base)
-        env:
-          ENVIRONMENT: ${{ github.event.inputs.environment || 'test' }}
-        shell: bash
-        run: |
-          echo "build base" && sleep 2
+    uses: ./.github/workflows/build-base.yaml
+    with:
+      environment: ${{ github.event.inputs.environment || 'test' }}
+      sha: ${{ needs.setup.outputs.head_sha }}
+    secrets: inherit
 
   build-base-retry-1:
     name: Build (base) - Retry 1
     needs: [setup, build-base]
     if: needs.build-base.result == 'failure'
-    timeout-minutes: 10
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    concurrency:
-      group: build-base-${{ github.ref }}
-      cancel-in-progress: true
-    steps:
-      - name: Build (base)
-        env:
-          ENVIRONMENT: ${{ github.event.inputs.environment || 'test' }}
-        shell: bash
-        run: |
-          echo "build base" && sleep 2
+    uses: ./.github/workflows/build-base.yaml
+    with:
+      environment: ${{ github.event.inputs.environment || 'test' }}
+      sha: ${{ needs.setup.outputs.head_sha }}
+    secrets: inherit
 
   build-base-retry-2:
     name: Build (base) - Retry 2
     needs: [setup, build-base-retry-1]
     if: needs.build-base-retry-1.result == 'failure'
-    timeout-minutes: 10
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    concurrency:
-      group: build-base-${{ github.ref }}
-      cancel-in-progress: true
-    steps:
-      - name: Build (base)
-        env:
-          ENVIRONMENT: ${{ github.event.inputs.environment || 'test' }}
-        shell: bash
-        run: |
-          echo "build base" && sleep 2
+    uses: ./.github/workflows/build-base.yaml
+    with:
+      environment: ${{ github.event.inputs.environment || 'test' }}
+      sha: ${{ needs.setup.outputs.head_sha }}
+    secrets: inherit
 
   build-app:
     name: Build (app)
@@ -162,15 +122,10 @@ jobs:
       needs.setup.outputs.run_build_app == 'true' &&
       needs.validate.result == 'success' &&
       needs.build-base.result == 'success'
-    timeout-minutes: 30
-    runs-on: ubuntu-latest
-    steps:
-      - name: Build (app)
-        env:
-          ENVIRONMENT: ${{ github.event.inputs.environment || 'test' }}
-        shell: bash
-        run: |
-          echo "build app" && sleep 2
+    uses: ./.github/workflows/build-app.yaml
+    with:
+      environment: ${{ github.event.inputs.environment || 'test' }}
+      sha: ${{ needs.setup.outputs.head_sha }}
 
   deploy-app:
     name: Deploy (app)
@@ -178,15 +133,10 @@ jobs:
     if: |
       needs.setup.outputs.run_deploy_app == 'true' &&
       needs.validate.result == 'success'
-    timeout-minutes: 30
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy (app)
-        env:
-          ENVIRONMENT: ${{ github.event.inputs.environment || 'test' }}
-        shell: bash
-        run: |
-          echo "deploy $ENVIRONMENT" && sleep 2
+    uses: ./.github/workflows/deploy-app.yaml
+    with:
+      environment: ${{ github.event.inputs.environment || 'test' }}
+      sha: ${{ needs.setup.outputs.head_sha }}
 
   finalize:
     name: Finalize
@@ -194,6 +144,9 @@ jobs:
     if: always() && needs.setup.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      app_artifact_id: ${{ needs.build-app.outputs.artifact_id }}
+      base_artifact_id: ${{ needs.build-base.outputs.artifact_id }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -212,6 +165,22 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "### Outputs" >> "$GITHUB_STEP_SUMMARY"
           HAS_OUTPUTS=false
+          if [[ -n "${{ needs.build-app.outputs.artifact_id }}" ]]; then
+            if [[ "$HAS_OUTPUTS" == "false" ]]; then
+              echo "| Output | Value |" >> "$GITHUB_STEP_SUMMARY"
+              echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+              HAS_OUTPUTS=true
+            fi
+            echo "| app_artifact_id | ${{ needs.build-app.outputs.artifact_id }} |" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ -n "${{ needs.build-base.outputs.artifact_id }}" ]]; then
+            if [[ "$HAS_OUTPUTS" == "false" ]]; then
+              echo "| Output | Value |" >> "$GITHUB_STEP_SUMMARY"
+              echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+              HAS_OUTPUTS=true
+            fi
+            echo "| base_artifact_id | ${{ needs.build-base.outputs.artifact_id }} |" >> "$GITHUB_STEP_SUMMARY"
+          fi
           if [[ "$HAS_OUTPUTS" == "false" ]]; then
             echo "_No outputs produced_" >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -253,6 +222,8 @@ jobs:
           VERSION: ${{ needs.setup.outputs.version }}
           ENVIRONMENT: ${{ github.event.inputs.environment || 'test' }}
           APP_RESULT: ${{ needs.deploy-app.result }}
+          BUILD_ARTIFACT_BASE: ${{ needs.build-base.outputs.artifact_id }}
+          BUILD_ARTIFACT_APP: ${{ needs.build-app.outputs.artifact_id }}
         run: |
           MANIFEST_FILE=".github/manifest.yaml"
           MANIFEST_KEY="ci"
@@ -280,6 +251,14 @@ jobs:
               yq eval -i ".$MANIFEST_KEY.state.$ENVIRONMENT.deploys.app.sha = \"$HEAD_SHA\"" "$MANIFEST_FILE"
               yq eval -i ".$MANIFEST_KEY.state.$ENVIRONMENT.deploys.app.deployed_at = \"$TIMESTAMP\"" "$MANIFEST_FILE"
               yq eval -i ".$MANIFEST_KEY.state.$ENVIRONMENT.deploys.app.deployed_by = \"${{ github.actor }}\"" "$MANIFEST_FILE"
+            fi
+            if [[ -n "$BUILD_ARTIFACT_BASE" ]]; then
+              yq eval -i ".$MANIFEST_KEY.state.$ENVIRONMENT.builds.base.sha = \"$HEAD_SHA\"" "$MANIFEST_FILE"
+              yq eval -i ".$MANIFEST_KEY.state.$ENVIRONMENT.builds.base.artifact_id = \"$BUILD_ARTIFACT_BASE\"" "$MANIFEST_FILE"
+            fi
+            if [[ -n "$BUILD_ARTIFACT_APP" ]]; then
+              yq eval -i ".$MANIFEST_KEY.state.$ENVIRONMENT.builds.app.sha = \"$HEAD_SHA\"" "$MANIFEST_FILE"
+              yq eval -i ".$MANIFEST_KEY.state.$ENVIRONMENT.builds.app.artifact_id = \"$BUILD_ARTIFACT_APP\"" "$MANIFEST_FILE"
             fi
           }
           

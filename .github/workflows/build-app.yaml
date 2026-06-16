@@ -1,0 +1,32 @@
+name: build-app
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: false
+        type: string
+      sha:
+        required: false
+        type: string
+      version:
+        required: false
+        type: string
+      target_env:
+        required: false
+        type: string
+    outputs:
+      artifact_id:
+        description: Identifier of the produced app artifact
+        value: ${{ jobs.run.outputs.artifact_id }}
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact_id: ${{ steps.build.outputs.artifact_id }}
+    steps:
+      - name: Stub build app
+        id: build
+        run: |
+          echo "build app environment=${{ inputs.environment }} sha=${{ inputs.sha }} version=${{ inputs.version }}"
+          echo "artifact_id=app-${{ inputs.sha }}" >> "$GITHUB_OUTPUT"
+          sleep 2

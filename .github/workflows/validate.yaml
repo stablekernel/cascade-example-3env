@@ -1,0 +1,25 @@
+name: validate
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: false
+        type: string
+      sha:
+        required: false
+        type: string
+      version:
+        required: false
+        type: string
+      dry_run:
+        required: false
+        type: boolean
+        default: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stub validate
+        run: |
+          echo "validating environment=${{ inputs.environment }} sha=${{ inputs.sha }} version=${{ inputs.version }}"
+          sleep 1
