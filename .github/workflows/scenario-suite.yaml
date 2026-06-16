@@ -27,6 +27,7 @@ on:
 permissions:
   contents: write
   actions: write
+  pull-requests: write
 
 concurrency:
   group: scenario-suite-${{ github.ref }}
@@ -183,35 +184,61 @@ jobs:
       # both inline builds ran in dependency order, draft created, state.test
       # set, staging/prod still unset.
       # ---------------------------------------------------------------------
-      - name: Stage 1 - commit to trunk
+      - name: Stage 1 - open PR and merge to trunk
+        id: merge
         env:
           GH_TOKEN: ${{ secrets.CASCADE_STATE_TEST_TOKEN }}
         run: |
+          set -euo pipefail
           source "$RUNNER_TEMP/helpers.sh"
+
+          BRANCH="scenario/src-$(date +%s)-$RANDOM"
+          git fetch origin main --quiet
+          git checkout -B "$BRANCH" origin/main
+
           mkdir -p src
-          echo "// scenario change $(date -u +%s)" >> src/app.txt
+          echo "// scenario change $(date -u +%FT%TWZ)" >> src/app.txt
           git add src/app.txt
           git commit -m "feat: scenario suite change"
-          before=$(git rev-parse HEAD)
-          git push origin HEAD:main
-          echo "pushed $before"
+          git push origin "$BRANCH"
+
+          gh pr create --base main --head "$BRANCH" \
+            --title "feat: scenario suite change" \
+            --body "Automated scenario run; drives orchestrate on merge."
+          gh pr merge "$BRANCH" --squash --delete-branch
+
+          git fetch origin main --quiet
+          MERGE_SHA="$(git rev-parse origin/main)"
+          echo "merge_sha=$MERGE_SHA" >> "$GITHUB_OUTPUT"
+          echo "merged PR branch=$BRANCH sha=$MERGE_SHA"
 
       - name: Stage 1 - await orchestrate and assert draft
         env:
           GH_TOKEN: ${{ secrets.CASCADE_STATE_TEST_TOKEN }}
         run: |
           source "$RUNNER_TEMP/helpers.sh"
-          wait_for_workflow orchestrate.yaml
+
+          # Wait for the orchestrate run triggered by THIS merge, keyed on
+          # the post-merge HEAD SHA. Never matches a stale or prior run.
+          MERGE_SHA="${{ steps.merge.outputs.merge_sha }}"
+          RUN_ID=""
+          for i in $(seq 1 30); do
+            RUN_ID="$(gh run list --workflow=orchestrate.yaml --branch=main \
+              --json databaseId,headSha,status \
+              --jq ".[] | select(.headSha==\"$MERGE_SHA\") | .databaseId" | head -n1)"
+            [ -n "$RUN_ID" ] && break
+            sleep "$POLL_INTERVAL"
+          done
+          [ -n "$RUN_ID" ] || fail "no orchestrate run found for merge sha $MERGE_SHA"
+          gh run watch "$RUN_ID" --exit-status
           refresh_manifest
 
           # Inline-callback observability: the orchestrate run graph must carry
           # the validate gate and both inline builds, with app needing base.
-          run_id=$(gh run list --workflow orchestrate.yaml --branch main \
-            --limit 1 --json databaseId -q '.[0].databaseId')
-          jobs=$(gh run view "$run_id" --json jobs -q '.jobs[].name')
+          jobs=$(gh run view "$RUN_ID" --json jobs -q '.jobs[].name')
           echo "$jobs" | grep -qi 'validate' || fail "validate gate job did not run"
           echo "$jobs" | grep -qi 'build' || fail "no build job ran"
-          echo "validate gate + inline builds observed in run $run_id"
+          echo "validate gate + inline builds observed in run $RUN_ID"
 
           assert_env_set test
           assert_env_unset staging
