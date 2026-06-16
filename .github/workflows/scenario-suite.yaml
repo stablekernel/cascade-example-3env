@@ -172,7 +172,7 @@ jobs:
           GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
         run: |
           source "$RUNNER_TEMP/helpers.sh"
-          cascade reset --state --push -c .github/manifest.yaml || \
+          cascade reset --state --push --config .github/manifest.yaml || \
             fail "cascade reset failed"
           git fetch origin main --quiet
           echo "reset complete"
