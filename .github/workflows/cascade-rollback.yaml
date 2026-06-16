@@ -106,7 +106,7 @@ jobs:
           version: v0.1.0
       - name: Finalize Rollback
         env:
-          GH_TOKEN: ${{ secrets.CASCADE_STATE_TEST_TOKEN }}
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           DEPLOYABLE: ${{ github.event.inputs.deployable }}
