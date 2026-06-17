@@ -342,6 +342,22 @@ jobs:
           cascade reset --state --push --config .github/manifest.yaml || \
             fail "cascade reset failed"
           git fetch origin main --quiet
+
+          # Reset every env branch the suite drives back to the trunk tip so the
+          # hotfix cherry-pick is deterministic on each re-run. Without this,
+          # env/staging accumulates prior-run hotfix commits and manifest/app
+          # churn, diverging from main until the cherry-pick conflicts. The
+          # force-push uses the GH_TOKEN-authenticated remote (CASCADE_STATE_TOKEN,
+          # an admin PAT) so it bypasses branch protection on env/staging. Create
+          # or reset, idempotent and safe to run every time. In-suite git only,
+          # so no GPG signing.
+          MAIN_SHA="$(git rev-parse origin/main)"
+          PUSH_REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          for env in test staging prod; do
+            git push --force "$PUSH_REMOTE" "${MAIN_SHA}:refs/heads/env/${env}" \
+              || fail "failed to reset env/${env} to main"
+            echo "env/${env} reset to ${MAIN_SHA}"
+          done
           echo "reset complete"
 
       # ---------------------------------------------------------------------
