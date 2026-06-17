@@ -477,10 +477,14 @@ jobs:
       # validate.abort_path: prove on_failure: abort. validate is an implicit
       # dependency of every build/deploy with default on_failure: abort, so a
       # failed validate must skip the entire downstream graph and fail the run.
-      # Inject the failure deterministically by setting the VALIDATE_FAIL_SENTINEL
-      # repository variable (validate.yaml exits 1 when it is non-empty), dispatch
-      # orchestrate, then assert the run failed and every build/deploy job was
-      # skipped. Always clear the sentinel afterward so the normal path stays green.
+      # Inject the failure deterministically by committing the tracked sentinel
+      # file .cascade-validate-fail to trunk in the same merge that drives the
+      # orchestrate run (validate.yaml exits 1 when it is present). Because the
+      # file lands in the merge that triggers orchestrate, the sentinel is in
+      # place before validate runs. Then assert the run failed and every
+      # build/deploy job was skipped. Always remove the sentinel afterward so the
+      # normal path stays green. A committed file is used instead of a repository
+      # variable so the suite needs only the contents scope it already holds.
       # ---------------------------------------------------------------------
       - name: Abort path - inject validate failure
         id: abort_seed
@@ -490,18 +494,17 @@ jobs:
           set -euo pipefail
           source "$RUNNER_TEMP/helpers.sh"
           SENTINEL="abort-$(date +%s)-$RANDOM"
-          gh variable set VALIDATE_FAIL_SENTINEL --repo "$REPO" --body "$SENTINEL" \
-            || fail "failed to set VALIDATE_FAIL_SENTINEL"
-          echo "sentinel=$SENTINEL" >> "$GITHUB_OUTPUT"
 
           # Drive orchestrate via a trunk change so the full callback graph runs
-          # under the failing validate gate.
+          # under the failing validate gate. The sentinel file is committed in the
+          # SAME merge, so it is present when validate checks out this commit.
           BRANCH="scenario/abort-$(date +%s)-$RANDOM"
           git fetch origin main --quiet
           git checkout -B "$BRANCH" origin/main
           mkdir -p src
           echo "// abort-path change $(date -u +%FT%TWZ)" >> src/app.txt
-          git add src/app.txt
+          echo "$SENTINEL" > .cascade-validate-fail
+          git add src/app.txt .cascade-validate-fail
           git commit --no-gpg-sign -m "feat: abort-path scenario change"
           git push origin "$BRANCH"
           gh pr create --base main --head "$BRANCH" \
@@ -509,6 +512,7 @@ jobs:
             --body "Drives orchestrate with a failing validate gate."
           gh pr merge "$BRANCH" --squash --delete-branch
           git fetch origin main --quiet
+          echo "sentinel=$SENTINEL" >> "$GITHUB_OUTPUT"
           echo "abort_sha=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
 
       - name: Abort path - assert orchestrate aborts
@@ -534,8 +538,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
         run: |
+          set -uo pipefail
           source "$RUNNER_TEMP/helpers.sh" || true
-          gh variable delete VALIDATE_FAIL_SENTINEL --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+          # Remove the committed sentinel from trunk so validate passes again and
+          # later stages stay green. The abort merge added it; this merge takes it
+          # back out. Idempotent: a no-op if it is already absent.
+          git fetch origin main --quiet || true
+          if git cat-file -e "origin/main:.cascade-validate-fail" 2>/dev/null; then
+            BRANCH="scenario/abort-clear-$(date +%s)-$RANDOM"
+            git checkout -B "$BRANCH" origin/main
+            git rm --quiet .cascade-validate-fail
+            git commit --no-gpg-sign -m "chore: clear abort-path validate sentinel"
+            git push origin "$BRANCH"
+            gh pr create --base main --head "$BRANCH" \
+              --title "chore: clear abort-path validate sentinel" \
+              --body "Removes the abort-path validate sentinel so the normal path stays green." \
+              && gh pr merge "$BRANCH" --squash --delete-branch
+            git fetch origin main --quiet || true
+          fi
           echo "sentinel cleared"
 
       # ---------------------------------------------------------------------

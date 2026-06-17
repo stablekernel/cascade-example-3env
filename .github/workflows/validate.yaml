@@ -19,19 +19,23 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Stub validate
-        env:
-          # Abort-path test hook. The scenario suite sets the repository
-          # variable VALIDATE_FAIL_SENTINEL to a unique value before the
-          # abort-path stage, then clears it. When it is set, validate exits
-          # non-zero so the suite can prove on_failure: abort skips every
-          # downstream build/deploy and fails the run. The normal path leaves
-          # the variable empty and this stub passes.
-          FAIL_SENTINEL: ${{ vars.VALIDATE_FAIL_SENTINEL }}
         run: |
           echo "validating environment=${{ inputs.environment }} sha=${{ inputs.sha }} version=${{ inputs.version }}"
-          if [ -n "$FAIL_SENTINEL" ]; then
-            echo "::error::validate sentinel set (${FAIL_SENTINEL}); failing to exercise on_failure: abort"
+          # Abort-path test hook. The scenario suite commits a tracked sentinel
+          # file (.cascade-validate-fail) to trunk in the same merge that drives
+          # the abort-path orchestrate run, then removes it. validate checks out
+          # the triggering commit, so when the file is present this stub exits
+          # non-zero and the suite can prove on_failure: abort skips every
+          # downstream build/deploy and fails the run. A committed file is used
+          # rather than a repository variable so the suite needs only the
+          # contents scope it already holds, not actions:write for variables.
+          SENTINEL_FILE=".cascade-validate-fail"
+          if [ -f "$SENTINEL_FILE" ]; then
+            echo "::error::validate sentinel file present ($(cat "$SENTINEL_FILE")); failing to exercise on_failure: abort"
             exit 1
           fi
           sleep 1
