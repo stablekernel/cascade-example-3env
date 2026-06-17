@@ -72,25 +72,27 @@ jobs:
 
           fail() { echo "::error::$1"; exit 1; }
 
-          # Wait until the latest orchestrate.yaml run on main reaches a
-          # conclusion. Bounded; emits ::error:: and fails on timeout.
+          # Wait for the $wf run that THIS suite dispatched, correlated by the
+          # dispatch timestamp passed as $2 (RFC3339, UTC). A workflow_dispatch
+          # run creates no new commit, so it is keyed on creation time rather
+          # than a head SHA. Poll for that run to appear, then block on its
+          # databaseId and require a success conclusion. Bounded; emits
+          # ::error:: and fails on timeout.
           wait_for_workflow() {
             local wf="$1"
-            local i
+            local ts="$2"
+            local i run_id=""
             for ((i=0; i<POLL_ATTEMPTS; i++)); do
-              local status conclusion
-              status=$(gh run list --workflow "$wf" --branch main \
-                --limit 1 --json status,conclusion -q '.[0].status' || echo "")
-              conclusion=$(gh run list --workflow "$wf" --branch main \
-                --limit 1 --json status,conclusion -q '.[0].conclusion' || echo "")
-              if [[ "$status" == "completed" ]]; then
-                [[ "$conclusion" == "success" ]] || fail "$wf concluded $conclusion"
-                echo "$wf completed: $conclusion"
-                return 0
-              fi
+              run_id=$(gh run list --workflow "$wf" --branch main \
+                --created ">=$ts" --limit 1 --json databaseId \
+                --jq '.[0].databaseId // empty' 2>/dev/null || echo "")
+              [[ -n "$run_id" ]] && break
               sleep "$POLL_INTERVAL"
             done
-            fail "timed out waiting for $wf to complete"
+            [[ -n "$run_id" ]] || fail "no $wf run found for dispatch $ts"
+            gh run watch "$run_id" --exit-status \
+              || fail "$wf run $run_id did not conclude success"
+            echo "$wf completed: run $run_id"
           }
 
           # Re-read the manifest state from trunk after cascade has written it.
@@ -271,10 +273,12 @@ jobs:
           GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
         run: |
           source "$RUNNER_TEMP/helpers.sh"
+          # Stamp dispatch time so the wait correlates the run this step
+          # created, never an older promote run that happens to be newest.
+          TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           gh workflow run promote.yaml -f mode=test-to-staging \
             || fail "failed to dispatch promote test-to-staging"
-          sleep "$POLL_INTERVAL"
-          wait_for_workflow promote.yaml
+          wait_for_workflow promote.yaml "$TS"
           refresh_manifest
 
           assert_env_set test
@@ -292,10 +296,12 @@ jobs:
           GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
         run: |
           source "$RUNNER_TEMP/helpers.sh"
+          # Stamp dispatch time so the wait correlates the run this step
+          # created, never an older promote run that happens to be newest.
+          TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           gh workflow run promote.yaml -f mode=staging-to-prod \
             || fail "failed to dispatch promote staging-to-prod"
-          sleep "$POLL_INTERVAL"
-          wait_for_workflow promote.yaml
+          wait_for_workflow promote.yaml "$TS"
           refresh_manifest
 
           assert_env_set test
