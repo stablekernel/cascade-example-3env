@@ -123,10 +123,10 @@ jobs:
           token: ${{ secrets.CASCADE_STATE_TOKEN }}
 
       - name: Setup cascade CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.19
+        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.20
         with:
           token: ${{ secrets.CASCADE_STATE_TOKEN }}
-          version: v1.0.0-rc.19
+          version: v1.0.0-rc.20
 
       - name: Configure git identity
         run: |
@@ -608,6 +608,17 @@ jobs:
           [ -n "$staging_ver" ] || fail "hotfix precondition: state.staging.version empty"
           echo "staging seed: sha=$staging_sha version=$staging_ver"
 
+          # Capture the non-target envs' trunk state SHAs BEFORE the hotfix runs.
+          # cascade-hotfix targets staging only; finalize must preserve test and
+          # prod trunk state untouched (hotfix finalize preserves non-target env
+          # state, #206). The post-finalize assertion re-reads these and demands
+          # an exact match - any drift is a clobber regression.
+          pre_test_sha=$(state_field test '.state.sha')
+          pre_prod_sha=$(state_field prod '.state.sha')
+          echo "pre_test_sha=$pre_test_sha" >> "$GITHUB_OUTPUT"
+          echo "pre_prod_sha=$pre_prod_sha" >> "$GITHUB_OUTPUT"
+          echo "pre-hotfix non-target state: test=$pre_test_sha prod=$pre_prod_sha"
+
           # Land a fresh fix on trunk; its SHA is the hotfix commit input.
           # The fix must cherry-pick CLEANLY onto env/staging so the hotfix
           # flow exercises the clean-cherry-pick auto-merge path (the path this
@@ -716,6 +727,23 @@ jobs:
             || fail "state.staging.base_sha must be a non-empty trunk anchor"
 
           echo "hotfix finalize state OK: ref=$ref version=$ver sha=$sha base_sha=$base_sha"
+
+          # No-clobber: hotfix finalize preserves non-target env state (#206).
+          # The hotfix targeted staging only, so test and prod trunk state must
+          # be byte-identical to the pre-hotfix capture. The staging finalize
+          # commit landed above (ref poll), but the state write is one async
+          # [skip ci] push, so refresh once more before reading the siblings to
+          # stay stale-read-safe (same pattern the rest of the suite uses).
+          PRE_TEST_SHA="${{ steps.hotfix_seed.outputs.pre_test_sha }}"
+          PRE_PROD_SHA="${{ steps.hotfix_seed.outputs.pre_prod_sha }}"
+          refresh_manifest
+          post_test_sha=$(state_field test '.state.sha')
+          post_prod_sha=$(state_field prod '.state.sha')
+          [ "$post_test_sha" = "$PRE_TEST_SHA" ] \
+            || fail "hotfix CLOBBERED state.test.sha: expected '$PRE_TEST_SHA', got '$post_test_sha'"
+          [ "$post_prod_sha" = "$PRE_PROD_SHA" ] \
+            || fail "hotfix CLOBBERED state.prod.sha: expected '$PRE_PROD_SHA', got '$post_prod_sha'"
+          echo "no-clobber OK: state.test.sha and state.prod.sha unchanged by hotfix (#206)"
 
       # ---------------------------------------------------------------------
       # Report-back: write a human-readable summary. The job status itself is
