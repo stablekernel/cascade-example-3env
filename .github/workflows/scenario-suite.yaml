@@ -593,12 +593,20 @@ jobs:
           echo "staging seed: sha=$staging_sha version=$staging_ver"
 
           # Land a fresh fix on trunk; its SHA is the hotfix commit input.
+          # The fix must cherry-pick CLEANLY onto env/staging so the hotfix
+          # flow exercises the clean-cherry-pick auto-merge path (the path this
+          # scenario asserts). Earlier scenario and abort-path steps append to
+          # src/app.txt and promote those lines onto env/staging; touching the
+          # same file here would collide on the trailing context and force the
+          # conflict path. Write to a run-unique file under src/** instead: a
+          # brand-new path never conflicts, and src/** still drives orchestrate.
           BRANCH="scenario/hotfix-$(date +%s)-$RANDOM"
           git fetch origin main --quiet
           git checkout -B "$BRANCH" origin/main
           mkdir -p src
-          echo "// hotfix change $(date -u +%FT%TWZ)" >> src/app.txt
-          git add src/app.txt
+          FIX_FILE="src/hotfix-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.txt"
+          echo "// hotfix change $(date -u +%FT%TWZ)" > "$FIX_FILE"
+          git add "$FIX_FILE"
           git commit --no-gpg-sign -m "fix: hotfix scenario patch"
           git push origin "$BRANCH"
           gh pr create --base main --head "$BRANCH" \
