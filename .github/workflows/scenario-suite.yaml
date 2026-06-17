@@ -39,10 +39,11 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------
-  # Gen-time wiring checks. Regenerate the orchestrate workflow from the
-  # manifest and assert the structural wiring that proves several manifest
-  # features without a live run. These survive regeneration because they
-  # check stable generated structure, not run-time observations:
+  # Gen-time wiring checks. Assert the structural wiring of the COMMITTED
+  # orchestrate.yaml that proves several manifest features without a live run.
+  # The committed file is exactly what runs, so static yq assertions on it are
+  # deterministic. These check stable generated structure, not run-time
+  # observations:
   #   - callback.permissions_oidc: id-token:write unions to the TOP level,
   #     never onto a reusable-caller job.
   #   - secrets.inherit: the base caller job emits `secrets: inherit`.
@@ -57,27 +58,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.CASCADE_STATE_TOKEN }}
-
-      - name: Setup cascade CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.15
-        with:
-          token: ${{ secrets.CASCADE_STATE_TOKEN }}
-          version: v1.0.0-rc.15
-
-      - name: Regenerate orchestrate workflow
-        run: |
-          set -euo pipefail
-          cascade generate-workflow --config .github/manifest.yaml
 
       - name: Assert generated orchestrate wiring
         run: |
           set -euo pipefail
           gfail() { echo "::error::$1"; exit 1; }
+          # Assert directly against the COMMITTED orchestrate.yaml. This is the
+          # exact file that runs in production, so static assertions on it are
+          # deterministic. yq (mikefarah/yq) ships preinstalled on the
+          # ubuntu-latest image; verify it before use.
+          command -v yq >/dev/null \
+            || gfail "yq not found on runner"
           ORCH=.github/workflows/orchestrate.yaml
-          [ -f "$ORCH" ] || gfail "orchestrate.yaml not generated"
+          [ -f "$ORCH" ] || gfail "committed orchestrate.yaml not found"
 
           # callback.permissions_oidc: id-token:write is a TOP-LEVEL union, not
           # per-job. Reusable-caller jobs cannot carry job-level permissions.
@@ -299,33 +292,36 @@ jobs:
             echo "all build/deploy jobs skipped on abort (run $run_id)"
           }
 
-          # auto_commits assertion. The state write lands on trunk via the
-          # Contents REST API as github-actions[bot] with a "[skip ci]" message.
-          # Walk recent trunk commits and require at least one orchestrate state
-          # write authored by github-actions[bot] whose message matches the
-          # template "chore: update state for <ENV> [skip ci]" (the literal the
-          # generated finalize step writes). On real GitHub these API commits are
-          # also Verified.
+          # auto_commits assertion. orchestrate's finalize writes env state to
+          # trunk through the Contents REST API using CASCADE_STATE_TOKEN, so the
+          # commit is authored by that token's user (GH_TOKEN here is the same
+          # token, so its login is the deterministic expected author - not
+          # github-actions[bot], which only labels the local git-commit path used
+          # by act/gitea). Walk recent trunk commits and require at least one
+          # orchestrate state write authored by the token user whose message
+          # matches the literal "chore: update state for <ENV> [skip ci]" the
+          # generated finalize step writes (generator.go).
           assert_auto_commit() {
             git fetch origin main --quiet
-            local found="" sha author msg verified
+            local expected found="" sha author msg
+            expected=$(gh api user --jq '.login' 2>/dev/null || echo "")
+            [[ -n "$expected" ]] \
+              || fail "could not resolve CASCADE_STATE_TOKEN user login"
             for sha in $(git rev-list -n 25 origin/main); do
               msg=$(git log -1 --format='%s' "$sha")
               case "$msg" in
                 "chore: update state for "*" [skip ci]")
                   author=$(gh api "repos/$REPO/commits/$sha" \
                     --jq '.author.login // ""' 2>/dev/null || echo "")
-                  verified=$(gh api "repos/$REPO/commits/$sha" \
-                    --jq '.commit.verification.verified // false' 2>/dev/null || echo "false")
-                  if [[ "$author" == "github-actions[bot]" ]]; then
+                  if [[ "$author" == "$expected" ]]; then
                     found="$sha"
-                    echo "auto-commit $sha by $author verified=$verified: $msg"
+                    echo "auto-commit $sha by $author: $msg"
                     break
                   fi ;;
               esac
             done
             [[ -n "$found" ]] \
-              || fail "no github-actions[bot] 'chore: update state for <env> [skip ci]' commit on trunk"
+              || fail "no '$expected' 'chore: update state for <env> [skip ci]' commit on trunk"
           }
           HELPERS
           echo "helpers written"
@@ -464,10 +460,11 @@ jobs:
 
       # ---------------------------------------------------------------------
       # auto_commits assertion: orchestrate's finalize writes env state to trunk
-      # through the Contents REST API, so on real GitHub the state commit is
-      # authored by github-actions[bot] (Verified) with the literal message
-      # "chore: update state for <ENV> [skip ci]". Assert that exact author +
-      # message shape rather than a commit-count heuristic.
+      # through the Contents REST API using CASCADE_STATE_TOKEN, so on real GitHub
+      # the state commit is authored by that token's user with the literal message
+      # "chore: update state for <ENV> [skip ci]". Assert that exact author (the
+      # token login, resolved at run time) + message shape rather than a
+      # commit-count heuristic.
       # ---------------------------------------------------------------------
       - name: Assert auto_commits author and message
         env:
