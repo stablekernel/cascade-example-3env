@@ -608,17 +608,6 @@ jobs:
           [ -n "$staging_ver" ] || fail "hotfix precondition: state.staging.version empty"
           echo "staging seed: sha=$staging_sha version=$staging_ver"
 
-          # Capture the non-target envs' trunk state SHAs BEFORE the hotfix runs.
-          # cascade-hotfix targets staging only; finalize must preserve test and
-          # prod trunk state untouched (hotfix finalize preserves non-target env
-          # state, #206). The post-finalize assertion re-reads these and demands
-          # an exact match - any drift is a clobber regression.
-          pre_test_sha=$(state_field test '.state.sha')
-          pre_prod_sha=$(state_field prod '.state.sha')
-          echo "pre_test_sha=$pre_test_sha" >> "$GITHUB_OUTPUT"
-          echo "pre_prod_sha=$pre_prod_sha" >> "$GITHUB_OUTPUT"
-          echo "pre-hotfix non-target state: test=$pre_test_sha prod=$pre_prod_sha"
-
           # Land a fresh fix on trunk; its SHA is the hotfix commit input.
           # The fix must cherry-pick CLEANLY onto env/staging so the hotfix
           # flow exercises the clean-cherry-pick auto-merge path (the path this
@@ -649,6 +638,37 @@ jobs:
           # flows do not contend on trunk state writes.
           ORCH_ID="$(orchestrate_run_for_sha "$FIX_SHA")"
           [ -n "$ORCH_ID" ] && gh run watch "$ORCH_ID" --exit-status || true
+
+          # Capture the pre-hotfix test/prod SHAs AFTER the seed orchestrate
+          # settles, so the no-clobber assert compares like-for-like (#206).
+          # The orchestrate above advances test (and may touch prod) via an
+          # async [skip ci] trunk write that lands AFTER the run concludes, so
+          # reading here without settling would capture a stale, mid-flight SHA
+          # and false-fail the no-clobber check. Poll trunk (same fetch+reset
+          # +reread pattern the suite uses elsewhere) until both SHAs are
+          # non-empty and stable across two consecutive reads, then capture.
+          # This is the true pre-hotfix deployment state: any later drift in
+          # test/prod is genuinely the hotfix and must still fail loud below.
+          pre_test_sha=""
+          pre_prod_sha=""
+          for _ in $(seq 1 "$POLL_ATTEMPTS"); do
+            refresh_manifest
+            cur_test=$(state_field test '.state.sha')
+            cur_prod=$(state_field prod '.state.sha')
+            if [ -n "$cur_test" ] && [ -n "$cur_prod" ] \
+              && [ "$cur_test" = "$pre_test_sha" ] \
+              && [ "$cur_prod" = "$pre_prod_sha" ]; then
+              break
+            fi
+            pre_test_sha="$cur_test"
+            pre_prod_sha="$cur_prod"
+            sleep "$POLL_INTERVAL"
+          done
+          [ -n "$pre_test_sha" ] || fail "pre-hotfix capture: state.test.sha never settled"
+          [ -n "$pre_prod_sha" ] || fail "pre-hotfix capture: state.prod.sha never settled"
+          echo "pre_test_sha=$pre_test_sha" >> "$GITHUB_OUTPUT"
+          echo "pre_prod_sha=$pre_prod_sha" >> "$GITHUB_OUTPUT"
+          echo "pre-hotfix non-target state (settled): test=$pre_test_sha prod=$pre_prod_sha"
 
           TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           gh workflow run cascade-hotfix.yaml \
