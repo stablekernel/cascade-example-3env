@@ -35,7 +35,7 @@ concurrency:
 
 env:
   POLL_ATTEMPTS: '20'
-  POLL_INTERVAL: '30'
+  POLL_INTERVAL: '60'
 
 jobs:
   # ---------------------------------------------------------------------
@@ -170,7 +170,7 @@ jobs:
               sleep "$POLL_INTERVAL"
             done
             [[ -n "$run_id" ]] || fail "no $wf run found for dispatch $ts"
-            gh run watch "$run_id" --interval 30 --exit-status \
+            gh run watch "$run_id" --interval 60 --exit-status \
               || fail "$wf run $run_id did not conclude success"
             echo "$wf completed: run $run_id"
           }
@@ -198,11 +198,11 @@ jobs:
           assert_env_set() {
             local env="$1"
             local v
-            for _ in $(seq 1 5); do
+            for _ in $(seq 1 2); do
               refresh_manifest
               v=$(status_version "$env")
               [[ -n "$v" ]] && break
-              sleep 20
+              sleep 60
             done
             [[ -n "$v" ]] || fail "expected state.$env to carry a version, got empty"
             echo "state.$env version=$v"
@@ -420,7 +420,7 @@ jobs:
             sleep "$POLL_INTERVAL"
           done
           [ -n "$RUN_ID" ] || fail "no orchestrate run found for merge sha $MERGE_SHA"
-          gh run watch "$RUN_ID" --interval 30 --exit-status
+          gh run watch "$RUN_ID" --interval 60 --exit-status
           refresh_manifest
 
           # The validate gate + base->app dependency ordering are proven
@@ -549,7 +549,7 @@ jobs:
           [ -n "$RUN_ID" ] || fail "no orchestrate run found for abort sha $ABORT_SHA"
 
           # The run MUST conclude failure (abort), so do not exit-status here.
-          gh run watch "$RUN_ID" --interval 30 >/dev/null 2>&1 || true
+          gh run watch "$RUN_ID" --interval 60 >/dev/null 2>&1 || true
           concl=$(gh run view "$RUN_ID" --json conclusion -q '.conclusion')
           [ "$concl" = "failure" ] \
             || fail "expected orchestrate conclusion=failure on abort, got '$concl'"
@@ -644,7 +644,7 @@ jobs:
           # Let it advance test before the hotfix targets staging, so the two
           # flows do not contend on trunk state writes.
           ORCH_ID="$(orchestrate_run_for_sha "$FIX_SHA")"
-          [ -n "$ORCH_ID" ] && gh run watch "$ORCH_ID" --interval 30 --exit-status || true
+          [ -n "$ORCH_ID" ] && gh run watch "$ORCH_ID" --interval 60 --exit-status || true
 
           # Capture the pre-hotfix test/prod SHAs AFTER the seed orchestrate
           # settles, so the no-clobber assert compares like-for-like (#206).
