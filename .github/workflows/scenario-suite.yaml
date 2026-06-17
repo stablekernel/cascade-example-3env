@@ -44,8 +44,8 @@ jobs:
   # The committed file is exactly what runs, so static yq assertions on it are
   # deterministic. These check stable generated structure, not run-time
   # observations:
-  #   - callback.permissions_oidc: id-token:write unions to the TOP level,
-  #     never onto a reusable-caller job.
+  #   - callback.permissions_oidc: id-token:write is scoped to the caller job
+  #     that needs it (per-job least privilege), not the workflow top level.
   #   - secrets.inherit: the base caller job emits `secrets: inherit`.
   #   - build.depends_on_order: build-app needs build-base AND its if gates
   #     on needs.build-base.result == 'success' (base -> app ordering).
@@ -72,14 +72,21 @@ jobs:
           ORCH=.github/workflows/orchestrate.yaml
           [ -f "$ORCH" ] || gfail "committed orchestrate.yaml not found"
 
-          # callback.permissions_oidc: id-token:write is a TOP-LEVEL union, not
-          # per-job. Reusable-caller jobs cannot carry job-level permissions.
-          idtoken=$(yq '.permissions."id-token" // ""' "$ORCH")
-          [ "$idtoken" = "write" ] \
-            || gfail "expected top-level permissions.id-token=write, got '$idtoken'"
-          baseperms=$(yq '.jobs."build-base".permissions // "null"' "$ORCH")
-          [ "$baseperms" = "null" ] \
-            || gfail "build-base must NOT carry job-level permissions, got '$baseperms'"
+          # callback.permissions_oidc: id-token:write is scoped to the caller
+          # job that needs it, not unioned onto the workflow top level. A
+          # reusable-workflow-caller job (uses:) carries its own job-level
+          # permissions block, and id-token: write on that caller propagates
+          # OIDC at runtime (GitHub-supported). This keeps the top level at
+          # least privilege: id-token never leaks to every job.
+          baseidtoken=$(yq '.jobs."build-base".permissions."id-token" // ""' "$ORCH")
+          [ "$baseidtoken" = "write" ] \
+            || gfail "expected build-base permissions.id-token=write, got '$baseidtoken'"
+          basecontents=$(yq '.jobs."build-base".permissions."contents" // ""' "$ORCH")
+          [ "$basecontents" = "read" ] \
+            || gfail "expected build-base permissions.contents=read, got '$basecontents'"
+          topidtoken=$(yq '.permissions."id-token" // ""' "$ORCH")
+          [ -z "$topidtoken" ] \
+            || gfail "top-level permissions.id-token must be absent (least privilege), got '$topidtoken'"
 
           # secrets.inherit: the base caller job emits the literal `secrets: inherit`.
           basesecrets=$(yq '.jobs."build-base".secrets // ""' "$ORCH")
