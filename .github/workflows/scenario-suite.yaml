@@ -38,10 +38,90 @@ env:
   POLL_INTERVAL: '15'
 
 jobs:
+  # ---------------------------------------------------------------------
+  # Gen-time wiring checks. Regenerate the orchestrate workflow from the
+  # manifest and assert the structural wiring that proves several manifest
+  # features without a live run. These survive regeneration because they
+  # check stable generated structure, not run-time observations:
+  #   - callback.permissions_oidc: id-token:write unions to the TOP level,
+  #     never onto a reusable-caller job.
+  #   - secrets.inherit: the base caller job emits `secrets: inherit`.
+  #   - build.depends_on_order: build-app needs build-base AND its if gates
+  #     on needs.build-base.result == 'success' (base -> app ordering).
+  #   - build.retries: the retry-shim jobs are emitted with the correct
+  #     re-invoke conditions.
+  gen-time:
+    name: gen-time wiring checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.CASCADE_STATE_TOKEN }}
+
+      - name: Setup cascade CLI
+        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.15
+        with:
+          token: ${{ secrets.CASCADE_STATE_TOKEN }}
+          version: v1.0.0-rc.15
+
+      - name: Regenerate orchestrate workflow
+        run: |
+          set -euo pipefail
+          cascade generate-workflow --config .github/manifest.yaml
+
+      - name: Assert generated orchestrate wiring
+        run: |
+          set -euo pipefail
+          gfail() { echo "::error::$1"; exit 1; }
+          ORCH=.github/workflows/orchestrate.yaml
+          [ -f "$ORCH" ] || gfail "orchestrate.yaml not generated"
+
+          # callback.permissions_oidc: id-token:write is a TOP-LEVEL union, not
+          # per-job. Reusable-caller jobs cannot carry job-level permissions.
+          idtoken=$(yq '.permissions."id-token" // ""' "$ORCH")
+          [ "$idtoken" = "write" ] \
+            || gfail "expected top-level permissions.id-token=write, got '$idtoken'"
+          baseperms=$(yq '.jobs."build-base".permissions // "null"' "$ORCH")
+          [ "$baseperms" = "null" ] \
+            || gfail "build-base must NOT carry job-level permissions, got '$baseperms'"
+
+          # secrets.inherit: the base caller job emits the literal `secrets: inherit`.
+          basesecrets=$(yq '.jobs."build-base".secrets // ""' "$ORCH")
+          [ "$basesecrets" = "inherit" ] \
+            || gfail "expected build-base secrets=inherit, got '$basesecrets'"
+
+          # build.depends_on_order: build-app needs build-base AND gates its if on
+          # the base callback succeeding (proves base -> app ordering + skip-gate).
+          yq '.jobs."build-app".needs[]' "$ORCH" | grep -qx 'build-base' \
+            || gfail "build-app.needs must contain build-base"
+          appif=$(yq '.jobs."build-app".if' "$ORCH")
+          echo "$appif" | grep -q "needs.build-base.result == 'success'" \
+            || gfail "build-app.if must gate on needs.build-base.result == 'success'"
+
+          # build.retries: base declares retries: 2, so two shim jobs are emitted,
+          # each re-invoking on the prior attempt's failure.
+          [ "$(yq '.jobs | has("build-base-retry-1")' "$ORCH")" = "true" ] \
+            || gfail "build-base-retry-1 shim job missing"
+          [ "$(yq '.jobs | has("build-base-retry-2")' "$ORCH")" = "true" ] \
+            || gfail "build-base-retry-2 shim job missing"
+          r1if=$(yq '.jobs."build-base-retry-1".if' "$ORCH")
+          echo "$r1if" | grep -q "needs.build-base.result == 'failure'" \
+            || gfail "build-base-retry-1.if must re-invoke on build-base failure, got '$r1if'"
+          yq '.jobs."build-base-retry-2".needs[]' "$ORCH" | grep -qx 'build-base-retry-1' \
+            || gfail "build-base-retry-2.needs must contain build-base-retry-1"
+          r2if=$(yq '.jobs."build-base-retry-2".if' "$ORCH")
+          echo "$r2if" | grep -q "needs.build-base-retry-1.result == 'failure'" \
+            || gfail "build-base-retry-2.if must re-invoke on retry-1 failure, got '$r2if'"
+
+          echo "gen-time wiring checks passed"
+
   suite:
     name: 3env scenario suite
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -173,6 +253,80 @@ jobs:
               || fail "expected a published vX.Y.Z tag, found none"
             echo "final tag present: $(git tag --list 'v[0-9]*' | grep -vE 'rc\.' | tail -1)"
           }
+
+          # state_field <env> <jq-path> -> prints a scalar field from the
+          # recorded env state (e.g. .state.sha, .state.ref, .state.base_sha).
+          state_field() {
+            cascade status env "$1" --json -c .github/manifest.yaml 2>/dev/null \
+              | jq -r "$2 // \"\""
+          }
+
+          # Find the orchestrate run for a given head SHA. Prints the databaseId
+          # or empty. Bounded poll; never matches a stale or prior run because it
+          # keys on the exact post-merge HEAD SHA.
+          orchestrate_run_for_sha() {
+            local sha="$1" i run_id=""
+            for ((i=0; i<POLL_ATTEMPTS; i++)); do
+              run_id=$(gh run list --workflow=orchestrate.yaml --branch=main \
+                --json databaseId,headSha \
+                --jq ".[] | select(.headSha==\"$sha\") | .databaseId" 2>/dev/null \
+                | head -n1)
+              [[ -n "$run_id" ]] && break
+              sleep "$POLL_INTERVAL"
+            done
+            echo "$run_id"
+          }
+
+          # Assert that EVERY build/deploy job in an orchestrate run concluded
+          # skipped (not success). Proves on_failure: abort short-circuited the
+          # downstream graph when validate failed. Setup/validate/finalize are
+          # exempt: they run (or fail) on the abort path.
+          assert_downstream_skipped() {
+            local run_id="$1" name concl bad=0
+            while IFS=$'\t' read -r name concl; do
+              case "$name" in
+                Setup|Finalize) continue ;;
+                Validate*) continue ;;
+                Build*|Deploy*)
+                  if [[ "$concl" != "skipped" ]]; then
+                    echo "::error::job '$name' concluded '$concl', expected skipped"
+                    bad=1
+                  fi ;;
+              esac
+            done < <(gh run view "$run_id" --json jobs \
+                       -q '.jobs[] | [.name, .conclusion] | @tsv')
+            [[ "$bad" -eq 0 ]] || fail "downstream jobs were not all skipped on abort"
+            echo "all build/deploy jobs skipped on abort (run $run_id)"
+          }
+
+          # auto_commits assertion. The state write lands on trunk via the
+          # Contents REST API as github-actions[bot] with a "[skip ci]" message.
+          # Walk recent trunk commits and require at least one orchestrate state
+          # write authored by github-actions[bot] whose message matches the
+          # template "chore: update state for <ENV> [skip ci]" (the literal the
+          # generated finalize step writes). On real GitHub these API commits are
+          # also Verified.
+          assert_auto_commit() {
+            git fetch origin main --quiet
+            local found="" sha author msg verified
+            for sha in $(git rev-list -n 25 origin/main); do
+              msg=$(git log -1 --format='%s' "$sha")
+              case "$msg" in
+                "chore: update state for "*" [skip ci]")
+                  author=$(gh api "repos/$REPO/commits/$sha" \
+                    --jq '.author.login // ""' 2>/dev/null || echo "")
+                  verified=$(gh api "repos/$REPO/commits/$sha" \
+                    --jq '.commit.verification.verified // false' 2>/dev/null || echo "false")
+                  if [[ "$author" == "github-actions[bot]" ]]; then
+                    found="$sha"
+                    echo "auto-commit $sha by $author verified=$verified: $msg"
+                    break
+                  fi ;;
+              esac
+            done
+            [[ -n "$found" ]] \
+              || fail "no github-actions[bot] 'chore: update state for <env> [skip ci]' commit on trunk"
+          }
           HELPERS
           echo "helpers written"
 
@@ -239,7 +393,7 @@ jobs:
           # the post-merge HEAD SHA. Never matches a stale or prior run.
           MERGE_SHA="${{ steps.merge.outputs.merge_sha }}"
           RUN_ID=""
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             RUN_ID="$(gh run list --workflow=orchestrate.yaml --branch=main \
               --json databaseId,headSha,status \
               --jq ".[] | select(.headSha==\"$MERGE_SHA\") | .databaseId" | head -n1)"
@@ -250,13 +404,11 @@ jobs:
           gh run watch "$RUN_ID" --exit-status
           refresh_manifest
 
-          # Inline-callback observability: the orchestrate run graph must carry
-          # the validate gate and both inline builds, with app needing base.
-          jobs=$(gh run view "$RUN_ID" --json jobs -q '.jobs[].name')
-          echo "$jobs" | grep -qi 'validate' || fail "validate gate job did not run"
-          echo "$jobs" | grep -qi 'build' || fail "no build job ran"
-          echo "validate gate + inline builds observed in run $RUN_ID"
-
+          # The validate gate + base->app dependency ordering are proven
+          # deterministically by the gen-time job (depends_on skip-gate) and by
+          # the abort-path stage below (a failed validate skips downstream).
+          # Here we only assert the env state landed, which already requires the
+          # whole callback graph to have succeeded in order.
           assert_env_set test
           assert_env_unset staging
           assert_env_unset prod
@@ -311,19 +463,218 @@ jobs:
           assert_final_tag_published
 
       # ---------------------------------------------------------------------
-      # auto_commits assertion: the `app` build declares auto_commits: true,
-      # so finalize records the post-callback HEAD. Confirm trunk advanced past
-      # the single feature commit (state-write commits land on top of it).
+      # auto_commits assertion: orchestrate's finalize writes env state to trunk
+      # through the Contents REST API, so on real GitHub the state commit is
+      # authored by github-actions[bot] (Verified) with the literal message
+      # "chore: update state for <ENV> [skip ci]". Assert that exact author +
+      # message shape rather than a commit-count heuristic.
       # ---------------------------------------------------------------------
-      - name: Assert auto_commits advanced trunk
+      - name: Assert auto_commits author and message
         env:
           GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
         run: |
           source "$RUNNER_TEMP/helpers.sh"
+          assert_auto_commit
+
+      # ---------------------------------------------------------------------
+      # validate.abort_path: prove on_failure: abort. validate is an implicit
+      # dependency of every build/deploy with default on_failure: abort, so a
+      # failed validate must skip the entire downstream graph and fail the run.
+      # Inject the failure deterministically by setting the VALIDATE_FAIL_SENTINEL
+      # repository variable (validate.yaml exits 1 when it is non-empty), dispatch
+      # orchestrate, then assert the run failed and every build/deploy job was
+      # skipped. Always clear the sentinel afterward so the normal path stays green.
+      # ---------------------------------------------------------------------
+      - name: Abort path - inject validate failure
+        id: abort_seed
+        env:
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/helpers.sh"
+          SENTINEL="abort-$(date +%s)-$RANDOM"
+          gh variable set VALIDATE_FAIL_SENTINEL --repo "$REPO" --body "$SENTINEL" \
+            || fail "failed to set VALIDATE_FAIL_SENTINEL"
+          echo "sentinel=$SENTINEL" >> "$GITHUB_OUTPUT"
+
+          # Drive orchestrate via a trunk change so the full callback graph runs
+          # under the failing validate gate.
+          BRANCH="scenario/abort-$(date +%s)-$RANDOM"
           git fetch origin main --quiet
-          count=$(git rev-list --count origin/main)
-          echo "trunk commit count=$count"
-          [[ "$count" -ge 2 ]] || fail "expected state-write commits on trunk, count=$count"
+          git checkout -B "$BRANCH" origin/main
+          mkdir -p src
+          echo "// abort-path change $(date -u +%FT%TWZ)" >> src/app.txt
+          git add src/app.txt
+          git commit --no-gpg-sign -m "feat: abort-path scenario change"
+          git push origin "$BRANCH"
+          gh pr create --base main --head "$BRANCH" \
+            --title "feat: abort-path scenario change" \
+            --body "Drives orchestrate with a failing validate gate."
+          gh pr merge "$BRANCH" --squash --delete-branch
+          git fetch origin main --quiet
+          echo "abort_sha=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
+
+      - name: Abort path - assert orchestrate aborts
+        if: always() && steps.abort_seed.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+        run: |
+          source "$RUNNER_TEMP/helpers.sh"
+          ABORT_SHA="${{ steps.abort_seed.outputs.abort_sha }}"
+          RUN_ID="$(orchestrate_run_for_sha "$ABORT_SHA")"
+          [ -n "$RUN_ID" ] || fail "no orchestrate run found for abort sha $ABORT_SHA"
+
+          # The run MUST conclude failure (abort), so do not exit-status here.
+          gh run watch "$RUN_ID" >/dev/null 2>&1 || true
+          concl=$(gh run view "$RUN_ID" --json conclusion -q '.conclusion')
+          [ "$concl" = "failure" ] \
+            || fail "expected orchestrate conclusion=failure on abort, got '$concl'"
+          assert_downstream_skipped "$RUN_ID"
+          echo "abort path proven: run $RUN_ID failed, downstream skipped"
+
+      - name: Abort path - clear sentinel
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+        run: |
+          source "$RUNNER_TEMP/helpers.sh" || true
+          gh variable delete VALIDATE_FAIL_SENTINEL --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
+          echo "sentinel cleared"
+
+      # ---------------------------------------------------------------------
+      # hotfix.flow: drive cascade-hotfix.yaml end to end against env/staging.
+      # Staging already records an RC version + SHA from the ladder above, which
+      # is the seed cascade hotfix finalize requires. Dispatch the hotfix with a
+      # fresh trunk fix commit targeting staging (NOT the first env, which the
+      # planner rejects). The clean cherry-pick auto-merges into env/staging;
+      # finalize then writes the divergence state. Assert the finalize contract:
+      #   - state.staging.ref   == "env/staging"
+      #   - state.staging.patches contains the fix SHA
+      #   - state.staging.version matches v*-rc.*.hotfix.1 (RC base)
+      #   - state.staging.sha    == the env/staging merge SHA
+      #   - state.staging.base_sha non-empty (trunk anchor)
+      #
+      # Precondition: the generated apply step enables auto-merge on the
+      # cascade-hotfix PR (gh pr merge --auto). The repository must allow
+      # auto-merge so a clean cherry-pick lands without a human; otherwise the
+      # PR stays open and the merge-wait below fails loud.
+      # ---------------------------------------------------------------------
+      - name: Hotfix - seed trunk fix and dispatch
+        id: hotfix_seed
+        env:
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+        run: |
+          set -euo pipefail
+          source "$RUNNER_TEMP/helpers.sh"
+
+          # Staging must carry a recorded SHA/version for finalize to anchor to.
+          refresh_manifest
+          staging_sha=$(state_field staging '.state.sha')
+          staging_ver=$(state_field staging '.state.version')
+          [ -n "$staging_sha" ] || fail "hotfix precondition: state.staging.sha empty"
+          [ -n "$staging_ver" ] || fail "hotfix precondition: state.staging.version empty"
+          echo "staging seed: sha=$staging_sha version=$staging_ver"
+
+          # Land a fresh fix on trunk; its SHA is the hotfix commit input.
+          BRANCH="scenario/hotfix-$(date +%s)-$RANDOM"
+          git fetch origin main --quiet
+          git checkout -B "$BRANCH" origin/main
+          mkdir -p src
+          echo "// hotfix change $(date -u +%FT%TWZ)" >> src/app.txt
+          git add src/app.txt
+          git commit --no-gpg-sign -m "fix: hotfix scenario patch"
+          git push origin "$BRANCH"
+          gh pr create --base main --head "$BRANCH" \
+            --title "fix: hotfix scenario patch" \
+            --body "Trunk fix to be cherry-picked onto env/staging by the hotfix flow."
+          gh pr merge "$BRANCH" --squash --delete-branch
+          git fetch origin main --quiet
+          FIX_SHA="$(git rev-parse origin/main)"
+          echo "fix_sha=$FIX_SHA" >> "$GITHUB_OUTPUT"
+
+          # The fix merge to trunk also triggers orchestrate (src/** changed).
+          # Let it advance test before the hotfix targets staging, so the two
+          # flows do not contend on trunk state writes.
+          ORCH_ID="$(orchestrate_run_for_sha "$FIX_SHA")"
+          [ -n "$ORCH_ID" ] && gh run watch "$ORCH_ID" --exit-status || true
+
+          TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh workflow run cascade-hotfix.yaml \
+            -f commit="$FIX_SHA" -f target_env=staging -f dry_run=false \
+            || fail "failed to dispatch cascade-hotfix.yaml"
+          echo "dispatch_ts=$TS" >> "$GITHUB_OUTPUT"
+          echo "dispatched hotfix for $FIX_SHA -> staging"
+
+      - name: Hotfix - await plan/apply and PR merge
+        id: hotfix_pr
+        env:
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+        run: |
+          source "$RUNNER_TEMP/helpers.sh"
+          TS="${{ steps.hotfix_seed.outputs.dispatch_ts }}"
+
+          # Wait for the dispatched hotfix run (plan + apply) to conclude.
+          wait_for_workflow cascade-hotfix.yaml "$TS"
+
+          # The clean cherry-pick opens a cascade-hotfix PR into env/staging and
+          # enables auto-merge. Poll for that PR to MERGE, then capture its merge
+          # commit SHA (the env/staging tip finalize records as state.staging.sha).
+          PR=""
+          for _ in $(seq 1 "$POLL_ATTEMPTS"); do
+            PR=$(gh pr list --base env/staging --state all --label cascade-hotfix \
+              --json number,state,mergeCommit \
+              --jq 'sort_by(.number) | last' 2>/dev/null || echo "")
+            state=$(echo "$PR" | jq -r '.state // ""')
+            [ "$state" = "MERGED" ] && break
+            sleep "$POLL_INTERVAL"
+          done
+          [ "$(echo "$PR" | jq -r '.state // ""')" = "MERGED" ] \
+            || fail "hotfix PR into env/staging did not merge"
+          MERGE_SHA=$(echo "$PR" | jq -r '.mergeCommit.oid // ""')
+          [ -n "$MERGE_SHA" ] || fail "merged hotfix PR has no merge commit sha"
+          echo "merge_sha=$MERGE_SHA" >> "$GITHUB_OUTPUT"
+          echo "hotfix PR merged into env/staging at $MERGE_SHA"
+
+      - name: Hotfix - await finalize and assert state
+        env:
+          GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
+        run: |
+          source "$RUNNER_TEMP/helpers.sh"
+          FIX_SHA="${{ steps.hotfix_seed.outputs.fix_sha }}"
+          MERGE_SHA="${{ steps.hotfix_pr.outputs.merge_sha }}"
+
+          # The PR-close run (context -> build -> deploy -> finalize) writes the
+          # divergence state to trunk. Poll trunk until state.staging.ref appears.
+          ref=""
+          for _ in $(seq 1 "$POLL_ATTEMPTS"); do
+            refresh_manifest
+            ref=$(state_field staging '.state.ref')
+            [ "$ref" = "env/staging" ] && break
+            sleep "$POLL_INTERVAL"
+          done
+          [ "$ref" = "env/staging" ] \
+            || fail "expected state.staging.ref=env/staging, got '$ref'"
+
+          # patches must contain the trunk fix SHA (full SHA, appended).
+          patches=$(cascade status env staging --json -c .github/manifest.yaml \
+            | jq -r '.state.patches[]? // empty')
+          echo "$patches" | grep -qx "$FIX_SHA" \
+            || fail "state.staging.patches must contain fix sha $FIX_SHA; got: $patches"
+
+          # version is a nested hotfix segment off the RC base: v*-rc.*.hotfix.1
+          ver=$(state_field staging '.state.version')
+          echo "$ver" | grep -Eq '^v.*-rc\..*\.hotfix\.[0-9]+$' \
+            || fail "state.staging.version must be an rc hotfix (v*-rc.*.hotfix.N), got '$ver'"
+
+          # sha is the env/staging merge tip; base_sha anchors trunk divergence.
+          sha=$(state_field staging '.state.sha')
+          [ "$sha" = "$MERGE_SHA" ] \
+            || fail "state.staging.sha must equal env/staging merge sha $MERGE_SHA, got '$sha'"
+          base_sha=$(state_field staging '.state.base_sha')
+          [ -n "$base_sha" ] \
+            || fail "state.staging.base_sha must be a non-empty trunk anchor"
+
+          echo "hotfix finalize state OK: ref=$ref version=$ver sha=$sha base_sha=$base_sha"
 
       # ---------------------------------------------------------------------
       # Report-back: write a human-readable summary. The job status itself is
