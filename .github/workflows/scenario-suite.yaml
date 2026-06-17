@@ -130,10 +130,10 @@ jobs:
           token: ${{ secrets.CASCADE_STATE_TOKEN }}
 
       - name: Setup cascade CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.22
+        uses: stablekernel/cascade/.github/actions/setup-cli@v0.2.0-rc.55
         with:
           token: ${{ secrets.CASCADE_STATE_TOKEN }}
-          version: v1.0.0-rc.22
+          version: v0.2.0-rc.55
 
       - name: Configure git identity
         run: |
