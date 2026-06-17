@@ -41,7 +41,6 @@ on:
 permissions:
   contents: write
   actions: write
-  id-token: write
 
 concurrency:
   group: "${{ github.workflow }}"
@@ -61,10 +60,10 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.21
+        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.22
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          version: v1.0.0-rc.21
+          version: v1.0.0-rc.22
       - name: Resolve Target
         id: preflight
         env:
@@ -101,10 +100,10 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.21
+        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.22
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          version: v1.0.0-rc.21
+          version: v1.0.0-rc.22
       - name: Finalize Rollback
         env:
           GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
