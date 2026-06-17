@@ -46,7 +46,6 @@ permissions:
   issues: write
   pull-requests: write
   actions: read
-  id-token: write
 
 concurrency:
   group: hotfix-${{ github.event.inputs.target_env || github.event.pull_request.base.ref }}
@@ -69,9 +68,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.21
+        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.22
         with:
-          version: v1.0.0-rc.21
+          version: v1.0.0-rc.22
       - name: Fetch env branches and tags
         run: |
           git fetch origin '+refs/heads/env/*:refs/remotes/origin/env/*' --tags
@@ -112,9 +111,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.21
+        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.22
         with:
-          version: v1.0.0-rc.21
+          version: v1.0.0-rc.22
       - name: Fetch env branches and tags
         run: |
           git fetch origin '+refs/heads/env/*:refs/remotes/origin/env/*' --tags
@@ -208,9 +207,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.21
+        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.22
         with:
-          version: v1.0.0-rc.21
+          version: v1.0.0-rc.22
       - name: Validate manifest
         run: |
           MANIFEST_FILE=".github/manifest.yaml"
@@ -259,6 +258,9 @@ jobs:
     name: Build base
     needs: context
     if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'cascade-hotfix')
+    permissions:
+      contents: read
+      id-token: write
     uses: ./.github/workflows/build-base.yaml
     with:
       sha: ${{ github.event.pull_request.merge_commit_sha }}
@@ -315,9 +317,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.21
+        uses: stablekernel/cascade/.github/actions/setup-cli@v1.0.0-rc.22
         with:
-          version: v1.0.0-rc.21
+          version: v1.0.0-rc.22
       - name: Fetch env branches and tags
         run: |
           git fetch origin '+refs/heads/env/*:refs/remotes/origin/env/*' --tags
