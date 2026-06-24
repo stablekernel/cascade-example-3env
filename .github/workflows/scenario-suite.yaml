@@ -122,7 +122,24 @@ jobs:
     name: 3env scenario suite
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      # Captured before anything is dispatched. The reconcile job enumerates
+      # every run this repo produced at or after this instant and fails if any
+      # is unaccounted for in the ledger. Recorded first so no run the suite
+      # causes can fall outside the window.
+      window-start: ${{ steps.window.outputs.window-start }}
     steps:
+      # The reconcile window opens here, before the first dispatch or merge.
+      # Every run the suite goes on to cause lands at or after this timestamp,
+      # so the reconcile job sees all of them.
+      - name: Open reconcile window
+        id: window
+        run: |
+          set -euo pipefail
+          WINDOW_START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "window-start=$WINDOW_START" >> "$GITHUB_OUTPUT"
+          echo "reconcile window opened at $WINDOW_START"
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -157,7 +174,9 @@ jobs:
           # run creates no new commit, so it is keyed on creation time rather
           # than a head SHA. Poll for that run to appear, then block on its
           # databaseId and require a success conclusion. Bounded; emits
-          # ::error:: and fails on timeout.
+          # ::error:: and fails on timeout. The resolved run id is written to
+          # $RESOLVED_RUN_ID_FILE so the caller can register it with the
+          # reconcile ledger.
           wait_for_workflow() {
             local wf="$1"
             local ts="$2"
@@ -170,6 +189,7 @@ jobs:
               sleep "$POLL_INTERVAL"
             done
             [[ -n "$run_id" ]] || fail "no $wf run found for dispatch $ts"
+            [[ -n "${RESOLVED_RUN_ID_FILE:-}" ]] && echo "$run_id" > "$RESOLVED_RUN_ID_FILE"
             gh run watch "$run_id" --interval 60 --exit-status \
               || fail "$wf run $run_id did not conclude success"
             echo "$wf completed: run $run_id"
@@ -403,6 +423,7 @@ jobs:
           echo "merged PR branch=$BRANCH sha=$MERGE_SHA"
 
       - name: Stage 1 - await orchestrate and assert draft
+        id: stage1
         env:
           GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
         run: |
@@ -420,6 +441,7 @@ jobs:
             sleep "$POLL_INTERVAL"
           done
           [ -n "$RUN_ID" ] || fail "no orchestrate run found for merge sha $MERGE_SHA"
+          echo "orchestrate_run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
           gh run watch "$RUN_ID" --interval 60 --exit-status
           refresh_manifest
 
@@ -434,12 +456,21 @@ jobs:
           assert_release_mode draft
           assert_rc_tag_present
 
+      - name: Register Stage 1 orchestrate run
+        uses: stablekernel/cascade/.github/actions/register-run@main
+        with:
+          run-id: ${{ steps.stage1.outputs.orchestrate_run_id }}
+          expected-conclusion: success
+          reason: stage1-orchestrate-merge
+          upload: 'true'
+
       # ---------------------------------------------------------------------
       # Stage 2: promote test -> staging. staging is len-2 (prerelease env), so
       # the draft flips to a GitHub prerelease. Assert staging now set, prod
       # still unset, release is prerelease.
       # ---------------------------------------------------------------------
       - name: Stage 2 - promote test to staging
+        id: stage2
         env:
           GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
         run: |
@@ -447,9 +478,11 @@ jobs:
           # Stamp dispatch time so the wait correlates the run this step
           # created, never an older promote run that happens to be newest.
           TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export RESOLVED_RUN_ID_FILE="$RUNNER_TEMP/stage2-run-id"
           gh workflow run promote.yaml -f mode=test-to-staging \
             || fail "failed to dispatch promote test-to-staging"
           wait_for_workflow promote.yaml "$TS"
+          echo "promote_run_id=$(cat "$RESOLVED_RUN_ID_FILE")" >> "$GITHUB_OUTPUT"
           refresh_manifest
 
           assert_env_set test
@@ -457,12 +490,21 @@ jobs:
           assert_env_unset prod
           assert_release_mode prerelease
 
+      - name: Register Stage 2 promote run
+        uses: stablekernel/cascade/.github/actions/register-run@main
+        with:
+          run-id: ${{ steps.stage2.outputs.promote_run_id }}
+          expected-conclusion: success
+          reason: stage2-promote-test-to-staging
+          upload: 'true'
+
       # ---------------------------------------------------------------------
       # Stage 3: promote staging -> prod. Crossing into prod is the publish
       # boundary: the prerelease is published as the final vX.Y.Z, rc.* tags are
       # cleaned. Assert all three envs set and the release is published.
       # ---------------------------------------------------------------------
       - name: Stage 3 - promote staging to prod
+        id: stage3
         env:
           GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
         run: |
@@ -470,9 +512,11 @@ jobs:
           # Stamp dispatch time so the wait correlates the run this step
           # created, never an older promote run that happens to be newest.
           TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export RESOLVED_RUN_ID_FILE="$RUNNER_TEMP/stage3-run-id"
           gh workflow run promote.yaml -f mode=staging-to-prod \
             || fail "failed to dispatch promote staging-to-prod"
           wait_for_workflow promote.yaml "$TS"
+          echo "promote_run_id=$(cat "$RESOLVED_RUN_ID_FILE")" >> "$GITHUB_OUTPUT"
           refresh_manifest
 
           assert_env_set test
@@ -480,6 +524,14 @@ jobs:
           assert_env_set prod
           assert_release_mode published
           assert_final_tag_published
+
+      - name: Register Stage 3 promote run
+        uses: stablekernel/cascade/.github/actions/register-run@main
+        with:
+          run-id: ${{ steps.stage3.outputs.promote_run_id }}
+          expected-conclusion: success
+          reason: stage3-promote-staging-to-prod
+          upload: 'true'
 
       # ---------------------------------------------------------------------
       # auto_commits assertion: orchestrate's finalize writes env state to trunk
@@ -539,6 +591,7 @@ jobs:
           echo "abort_sha=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
 
       - name: Abort path - assert orchestrate aborts
+        id: abort_assert
         if: always() && steps.abort_seed.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
@@ -547,6 +600,7 @@ jobs:
           ABORT_SHA="${{ steps.abort_seed.outputs.abort_sha }}"
           RUN_ID="$(orchestrate_run_for_sha "$ABORT_SHA")"
           [ -n "$RUN_ID" ] || fail "no orchestrate run found for abort sha $ABORT_SHA"
+          echo "orchestrate_run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
 
           # The run MUST conclude failure (abort), so do not exit-status here.
           gh run watch "$RUN_ID" --interval 60 >/dev/null 2>&1 || true
@@ -555,6 +609,21 @@ jobs:
             || fail "expected orchestrate conclusion=failure on abort, got '$concl'"
           assert_downstream_skipped "$RUN_ID"
           echo "abort path proven: run $RUN_ID failed, downstream skipped"
+
+      # The abort-path orchestrate run is a registered NEGATIVE: it must
+      # conclude failure (on_failure: abort short-circuited the graph). Register
+      # it expected: failure so reconcile treats it as accounted-for, and so a
+      # build of that run that wrongly SUCCEEDS (the guard regressed) reds the
+      # gate instead of passing as benign. Runs whenever the run id resolved,
+      # even if the assert step above failed downstream.
+      - name: Register abort-path orchestrate run
+        if: always() && steps.abort_assert.outputs.orchestrate_run_id != ''
+        uses: stablekernel/cascade/.github/actions/register-run@main
+        with:
+          run-id: ${{ steps.abort_assert.outputs.orchestrate_run_id }}
+          expected-conclusion: failure
+          reason: abort-path-orchestrate-negative
+          upload: 'true'
 
       - name: Abort path - clear sentinel
         if: always()
@@ -644,6 +713,7 @@ jobs:
           # Let it advance test before the hotfix targets staging, so the two
           # flows do not contend on trunk state writes.
           ORCH_ID="$(orchestrate_run_for_sha "$FIX_SHA")"
+          echo "seed_orchestrate_run_id=$ORCH_ID" >> "$GITHUB_OUTPUT"
           [ -n "$ORCH_ID" ] && gh run watch "$ORCH_ID" --interval 60 --exit-status || true
 
           # Capture the pre-hotfix test/prod SHAs AFTER the seed orchestrate
@@ -692,16 +762,24 @@ jobs:
           source "$RUNNER_TEMP/helpers.sh"
           TS="${{ steps.hotfix_seed.outputs.dispatch_ts }}"
 
-          # Wait for the dispatched hotfix run (plan + apply) to conclude.
+          # Wait for the dispatched hotfix run (plan + apply) to conclude. Capture
+          # its run id for the reconcile ledger.
+          export RESOLVED_RUN_ID_FILE="$RUNNER_TEMP/hotfix-dispatch-run-id"
           wait_for_workflow cascade-hotfix.yaml "$TS"
+          DISPATCH_RUN_ID="$(cat "$RESOLVED_RUN_ID_FILE")"
 
           # The clean cherry-pick opens a cascade-hotfix PR into env/staging and
           # enables auto-merge. Poll for that PR to MERGE, then capture its merge
           # commit SHA (the env/staging tip finalize records as state.staging.sha).
+          # Also capture the PR head branch (hotfix/staging/<short>) and head SHA:
+          # the env-branch-gate run and the pull_request-triggered Cascade Hotfix
+          # finalize run are both keyed on this PR head, and the suite must
+          # register BOTH so reconcile accounts for them (the finalize run is the
+          # previously-ungated fire-and-forget run).
           PR=""
           for _ in $(seq 1 "$POLL_ATTEMPTS"); do
             PR=$(gh pr list --base env/staging --state all --label cascade-hotfix \
-              --json number,state,mergeCommit \
+              --json number,state,mergeCommit,headRefName,headRefOid \
               --jq 'sort_by(.number) | last' 2>/dev/null || echo "")
             state=$(echo "$PR" | jq -r '.state // ""')
             [ "$state" = "MERGED" ] && break
@@ -711,8 +789,90 @@ jobs:
             || fail "hotfix PR into env/staging did not merge"
           MERGE_SHA=$(echo "$PR" | jq -r '.mergeCommit.oid // ""')
           [ -n "$MERGE_SHA" ] || fail "merged hotfix PR has no merge commit sha"
-          echo "merge_sha=$MERGE_SHA" >> "$GITHUB_OUTPUT"
-          echo "hotfix PR merged into env/staging at $MERGE_SHA"
+          HEAD_BRANCH=$(echo "$PR" | jq -r '.headRefName // ""')
+          HEAD_SHA=$(echo "$PR" | jq -r '.headRefOid // ""')
+          [ -n "$HEAD_BRANCH" ] || fail "merged hotfix PR has no head branch"
+          [ -n "$HEAD_SHA" ] || fail "merged hotfix PR has no head sha"
+          echo "hotfix PR merged into env/staging at $MERGE_SHA (head $HEAD_BRANCH @ $HEAD_SHA)"
+
+          # Resolve the env-branch-gate run fired when the PR opened (it posts the
+          # required status so auto-merge proceeds). Keyed on the PR head branch.
+          GATE_RUN_ID=""
+          for _ in $(seq 1 "$POLL_ATTEMPTS"); do
+            GATE_RUN_ID=$(gh run list --workflow=env-branch-gate.yaml \
+              --branch "$HEAD_BRANCH" --event pull_request \
+              --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || echo "")
+            [ -n "$GATE_RUN_ID" ] && break
+            sleep "$POLL_INTERVAL"
+          done
+          [ -n "$GATE_RUN_ID" ] || fail "no env-branch-gate run found for hotfix PR head $HEAD_BRANCH"
+
+          # Resolve the pull_request-triggered Cascade Hotfix finalize run: it
+          # fires when the hotfix PR merges into env/staging and runs the Finalize
+          # job. This is the run the suite historically NEVER inspected (the
+          # fire-and-forget gap). Key it on the same PR head branch + the
+          # pull_request event so it never collides with the workflow_dispatch run
+          # captured above. Wait for it to conclude and require success.
+          FINALIZE_RUN_ID=""
+          for _ in $(seq 1 "$POLL_ATTEMPTS"); do
+            FINALIZE_RUN_ID=$(gh run list --workflow=cascade-hotfix.yaml \
+              --branch "$HEAD_BRANCH" --event pull_request \
+              --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || echo "")
+            [ -n "$FINALIZE_RUN_ID" ] && break
+            sleep "$POLL_INTERVAL"
+          done
+          [ -n "$FINALIZE_RUN_ID" ] \
+            || fail "no pull_request Cascade Hotfix finalize run found for head $HEAD_BRANCH"
+          gh run watch "$FINALIZE_RUN_ID" --interval 60 --exit-status \
+            || fail "pull_request Cascade Hotfix finalize run $FINALIZE_RUN_ID did not conclude success"
+          echo "hotfix finalize (pull_request) run $FINALIZE_RUN_ID concluded success"
+
+          # Emit every resolved run id in one grouped redirect (SC2129).
+          {
+            echo "dispatch_run_id=$DISPATCH_RUN_ID"
+            echo "merge_sha=$MERGE_SHA"
+            echo "head_branch=$HEAD_BRANCH"
+            echo "head_sha=$HEAD_SHA"
+            echo "gate_run_id=$GATE_RUN_ID"
+            echo "finalize_run_id=$FINALIZE_RUN_ID"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Register hotfix seed orchestrate run
+        if: steps.hotfix_seed.outputs.seed_orchestrate_run_id != ''
+        uses: stablekernel/cascade/.github/actions/register-run@main
+        with:
+          run-id: ${{ steps.hotfix_seed.outputs.seed_orchestrate_run_id }}
+          expected-conclusion: success
+          reason: hotfix-seed-orchestrate
+          upload: 'true'
+
+      - name: Register hotfix dispatch (plan/apply) run
+        uses: stablekernel/cascade/.github/actions/register-run@main
+        with:
+          run-id: ${{ steps.hotfix_pr.outputs.dispatch_run_id }}
+          expected-conclusion: success
+          reason: hotfix-dispatch-plan-apply
+          upload: 'true'
+
+      - name: Register hotfix env-branch-gate run
+        uses: stablekernel/cascade/.github/actions/register-run@main
+        with:
+          run-id: ${{ steps.hotfix_pr.outputs.gate_run_id }}
+          expected-conclusion: success
+          reason: hotfix-env-branch-gate
+          upload: 'true'
+
+      # The previously-ungated fire-and-forget run: the pull_request-triggered
+      # Cascade Hotfix Finalize run on hotfix/staging/*. Registering it closes
+      # the known coverage gap - reconcile now fails the suite if this run
+      # concludes anything other than success.
+      - name: Register hotfix finalize (pull_request) run
+        uses: stablekernel/cascade/.github/actions/register-run@main
+        with:
+          run-id: ${{ steps.hotfix_pr.outputs.finalize_run_id }}
+          expected-conclusion: success
+          reason: hotfix-finalize-pull-request
+          upload: 'true'
 
       - name: Hotfix - await finalize and assert state
         env:
@@ -792,3 +952,26 @@ jobs:
             echo ""
             echo "Result: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------
+  # Reconcile gate: structural coverage backstop. The suite's own asserts above
+  # still gate each run they remember to wait on; this job is additive. It
+  # enumerates EVERY run this repo produced since window-start (captured before
+  # the first dispatch) and fails if any is unaccounted for in the ledger the
+  # register-run steps uploaded - an unregistered non-success run, or a
+  # registered run that concluded other than its expected conclusion. That turns
+  # any fire-and-forget run the suite forgot to gate (historically the
+  # pull_request Cascade Hotfix Finalize run) into a hard red.
+  reconcile:
+    name: Reconcile scenario-window runs
+    needs: [suite]
+    if: always()
+    uses: stablekernel/cascade/.github/workflows/fleet-reconcile.yaml@main
+    permissions:
+      contents: read
+      actions: read
+    with:
+      window-start: ${{ needs.suite.outputs.window-start }}
+      # Artifact mode: each register-run step uploaded a per-job ledger under
+      # the default cascade-run-ledger-* name; reconcile globs and merges them.
+      cascade-ref: main
