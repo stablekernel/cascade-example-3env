@@ -759,6 +759,26 @@ jobs:
           echo "pre_prod_sha=$pre_prod_sha" >> "$GITHUB_OUTPUT"
           echo "pre-hotfix non-target state (settled): test=$pre_test_sha prod=$pre_prod_sha"
 
+          # Realign env/staging with recorded state immediately before dispatch.
+          # cascade derives the hotfix cherry-pick base from recorded
+          # state.staging.sha, and the plan refuses to run when the live env
+          # branch tip has drifted from it; a finalized hotfix always leaves the
+          # two equal. Earlier suite stages reset and promote onto env/staging,
+          # leaving its tip ahead of recorded state, so pin it back to the
+          # recorded SHA and let plan see tip == state, exactly as a real adopter
+          # would. The fresh run-unique fix landed past this base, so it is still
+          # absent from the branch and cherry-picks cleanly. Admin-PAT remote
+          # bypasses branch protection; in-suite git only, no GPG signing.
+          refresh_manifest
+          realign_staging_sha=$(state_field staging '.state.sha')
+          [ -n "$realign_staging_sha" ] \
+            || fail "hotfix precondition: state.staging.sha empty at realign"
+          PUSH_REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force "$PUSH_REMOTE" \
+            "${realign_staging_sha}:refs/heads/env/staging" \
+            || fail "failed to realign env/staging to recorded state"
+          echo "realigned env/staging -> ${realign_staging_sha}"
+
           TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           gh workflow run cascade-hotfix.yaml \
             -f commit="$FIX_SHA" -f target_env=staging -f dry_run=false \
