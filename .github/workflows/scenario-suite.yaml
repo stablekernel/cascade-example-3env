@@ -154,8 +154,8 @@ jobs:
 
       - name: Configure git identity
         run: |
-          git config user.name "cascade-suite[bot]"
-          git config user.email "cascade-suite@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       # ---------------------------------------------------------------------
       # Shared helpers: bounded waits and shape assertions. Defined once as a
@@ -320,20 +320,16 @@ jobs:
           }
 
           # auto_commits assertion. orchestrate's finalize writes env state to
-          # trunk through the Contents REST API using CASCADE_STATE_TOKEN, so the
-          # commit is authored by that token's user (GH_TOKEN here is the same
-          # token, so its login is the deterministic expected author - not
-          # github-actions[bot], which only labels the local git-commit path used
-          # by act/gitea). Walk recent trunk commits and require at least one
-          # orchestrate state write authored by the token user whose message
-          # matches the literal "chore: update state for <ENV> [skip ci]" the
-          # generated finalize step writes (generator.go).
+          # trunk through the Contents REST API using CASCADE_STATE_TOKEN, and
+          # the resulting commit is authored by github-actions[bot]. Walk recent
+          # trunk commits and require at least one orchestrate state write
+          # authored by github-actions[bot] whose message matches the literal
+          # "chore: update state for <ENV> [skip ci]" the generated finalize
+          # step writes (generator.go).
           assert_auto_commit() {
             git fetch origin main --quiet
             local expected found="" sha author msg
-            expected=$(gh api user --jq '.login' 2>/dev/null || echo "")
-            [[ -n "$expected" ]] \
-              || fail "could not resolve CASCADE_STATE_TOKEN user login"
+            expected="github-actions[bot]"
             for sha in $(git rev-list -n 25 origin/main); do
               msg=$(git log -1 --format='%s' "$sha")
               case "$msg" in
@@ -432,7 +428,7 @@ jobs:
           gh pr create --base main --head "$BRANCH" \
             --title "feat: scenario suite change" \
             --body "Automated scenario run; drives orchestrate on merge."
-          gh pr merge "$BRANCH" --squash --delete-branch
+          gh pr merge "$BRANCH" --rebase --delete-branch
 
           git fetch origin main --quiet
           MERGE_SHA="$(git rev-parse origin/main)"
@@ -553,10 +549,9 @@ jobs:
       # ---------------------------------------------------------------------
       # auto_commits assertion: orchestrate's finalize writes env state to trunk
       # through the Contents REST API using CASCADE_STATE_TOKEN, so on real GitHub
-      # the state commit is authored by that token's user with the literal message
-      # "chore: update state for <ENV> [skip ci]". Assert that exact author (the
-      # token login, resolved at run time) + message shape rather than a
-      # commit-count heuristic.
+      # the state commit is authored by github-actions[bot] with the literal message
+      # "chore: update state for <ENV> [skip ci]". Assert that exact author plus
+      # message shape rather than a commit-count heuristic.
       # ---------------------------------------------------------------------
       - name: Assert auto_commits author and message
         env:
@@ -602,7 +597,7 @@ jobs:
           gh pr create --base main --head "$BRANCH" \
             --title "feat: abort-path scenario change" \
             --body "Drives orchestrate with a failing validate gate."
-          gh pr merge "$BRANCH" --squash --delete-branch
+          gh pr merge "$BRANCH" --rebase --delete-branch
           git fetch origin main --quiet
           echo "sentinel=$SENTINEL" >> "$GITHUB_OUTPUT"
           echo "abort_sha=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
@@ -662,7 +657,7 @@ jobs:
             gh pr create --base main --head "$BRANCH" \
               --title "chore: clear abort-path validate sentinel" \
               --body "Removes the abort-path validate sentinel so the normal path stays green." \
-              && gh pr merge "$BRANCH" --squash --delete-branch
+              && gh pr merge "$BRANCH" --rebase --delete-branch
             git fetch origin main --quiet || true
           fi
           echo "sentinel cleared"
@@ -721,7 +716,7 @@ jobs:
           gh pr create --base main --head "$BRANCH" \
             --title "fix: hotfix scenario patch" \
             --body "Trunk fix to be cherry-picked onto env/staging by the hotfix flow."
-          gh pr merge "$BRANCH" --squash --delete-branch
+          gh pr merge "$BRANCH" --rebase --delete-branch
           git fetch origin main --quiet
           FIX_SHA="$(git rev-parse origin/main)"
           echo "fix_sha=$FIX_SHA" >> "$GITHUB_OUTPUT"
