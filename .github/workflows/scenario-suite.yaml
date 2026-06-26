@@ -346,7 +346,45 @@ jobs:
             [[ -n "$found" ]] \
               || fail "no '$expected' 'chore: update state for <env> [skip ci]' commit on trunk"
           }
+
+          _gh_is_transient() {
+            # $1 = combined gh output. Returns 0 when the failure looks transient.
+            local out="$1"
+            if printf '%s' "$out" | grep -qiE 'HTTP 5[0-9][0-9]|HTTP 429|HTTP 401|Bad credentials|was submitted too quickly|secondary rate limit'; then
+              return 0
+            fi
+            if printf '%s' "$out" | grep -qiE 'HTTP 403'; then
+              if printf '%s' "$out" | grep -qiE 'rate limit|secondary|abuse|too quickly'; then
+                return 0
+              fi
+            fi
+            return 1
+          }
+
+          gh() {
+            local attempt=1 max="${GH_RETRY_MAX:-5}" delay="${GH_RETRY_BASE_DELAY:-3}" out rc
+            while :; do
+              # errexit-safe capture: never let a failing gh abort before we inspect rc.
+              out="$(command gh "$@" 2>&1)" && rc=0 || rc=$?
+              if [ "$rc" -eq 0 ]; then
+                printf '%s\n' "$out"
+                return 0
+              fi
+              if [ "$attempt" -ge "$max" ] || ! _gh_is_transient "$out"; then
+                if [ "$attempt" -gt 1 ]; then
+                  printf 'gh: giving up after %d attempts (exit %d)\n' "$attempt" "$rc" >&2
+                fi
+                printf '%s\n' "$out" >&2
+                return "$rc"
+              fi
+              printf 'gh: transient error on attempt %d/%d, retrying in %ds\n%s\n' "$attempt" "$max" "$delay" "$out" >&2
+              sleep "$delay"
+              attempt=$((attempt + 1))
+              delay=$((delay * 2))
+            done
+          }
           HELPERS
+          echo "BASH_ENV=$RUNNER_TEMP/helpers.sh" >> "$GITHUB_ENV"
           echo "helpers written"
 
       # ---------------------------------------------------------------------
