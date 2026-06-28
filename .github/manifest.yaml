@@ -9,7 +9,6 @@ ci:
             - staging
             - prod
         cli_version: v0.6.0-dryrun.10
-        cli_version_sha: 7db22e96add0a6d44da6cef2bc1288135855a443
         state_token: ${{ secrets.CASCADE_STATE_TOKEN }}
         manifest_file: .github/manifest.yaml
         manifest_key: ci
@@ -38,62 +37,3 @@ ci:
             - name: app
               workflow: .github/workflows/deploy-app.yaml
               triggers: []
-    state:
-        prod:
-            sha: 594adf05163c0055e08301ce9885ec378116c844
-            version: v0.1.0
-            committed_at: "2026-06-28T01:21:40Z"
-            committed_by: joshua-temple
-            deploys:
-                app:
-                    sha: 594adf05163c0055e08301ce9885ec378116c844
-                    version: v0.1.0
-                    deployed_at: "2026-06-28T01:21:40Z"
-                    deployed_by: joshua-temple
-        release:
-            sha: 594adf05163c0055e08301ce9885ec378116c844
-            version: v0.1.0
-            committed_at: "2026-06-28T01:21:40Z"
-            committed_by: joshua-temple
-        staging:
-            sha: da36e64f4ae35777bc38f2dee0e968229a3386e3
-            version: v0.6.0-dryrun.10.hotfix.1
-            committed_at: "2026-06-28T01:28:00Z"
-            committed_by: joshua-temple
-            deploys:
-                app:
-                    sha: 594adf05163c0055e08301ce9885ec378116c844
-                    version: v0.6.0-dryrun.10
-                    deployed_at: "2026-06-28T01:20:29Z"
-                    deployed_by: joshua-temple
-            ref: env/staging
-            base_sha: 594adf05163c0055e08301ce9885ec378116c844
-            patches:
-                - b02f985191fddd21a7a4a163811498a76a2f955d
-            previous:
-                - sha: 594adf05163c0055e08301ce9885ec378116c844
-                  version: v0.6.0-dryrun.10
-                  committed_at: "2026-06-28T01:20:29Z"
-                  committed_by: joshua-temple
-        test:
-            sha: b02f985191fddd21a7a4a163811498a76a2f955d
-            version: v0.6.0-dryrun.10
-            committed_at: "2026-06-28T01:24:37Z"
-            committed_by: joshua-temple
-            builds:
-                app:
-                    sha: b02f985191fddd21a7a4a163811498a76a2f955d
-                    artifact_id: app-b02f985191fddd21a7a4a163811498a76a2f955d
-                base:
-                    sha: b02f985191fddd21a7a4a163811498a76a2f955d
-                    artifact_id: base-b02f985191fddd21a7a4a163811498a76a2f955d
-            deploys:
-                app:
-                    sha: b02f985191fddd21a7a4a163811498a76a2f955d
-                    deployed_at: "2026-06-28T01:24:37Z"
-                    deployed_by: joshua-temple
-    latest_release:
-        version: v0.1.0
-        sha: 594adf05163c0055e08301ce9885ec378116c844
-        released_on: "2026-06-28T01:21:40Z"
-        released_by: joshua-temple
