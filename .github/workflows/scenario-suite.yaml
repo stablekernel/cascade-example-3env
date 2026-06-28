@@ -168,6 +168,24 @@ jobs:
           REPO="${GITHUB_REPOSITORY}"
 
           fail() { echo "::error::$1"; exit 1; }
+          # Close any open cascade-hotfix / cascade-hotfix-conflict PR before the
+          # hotfix stage runs. The generated plan job passes --repo, which arms
+          # the single-flight gate: it aborts a fresh hotfix while an open hotfix
+          # PR already targets the env. A prior run that ended mid-hotfix can
+          # strand such a PR, so close each one and drop its head branch to
+          # normalize state. Scoped to the two hotfix labels; other open PRs are
+          # left untouched.
+          close_open_hotfix_prs() {
+            local label num
+            for label in cascade-hotfix cascade-hotfix-conflict; do
+              for num in $(gh pr list --repo "$REPO" --state open --label "$label" \
+                --json number --jq '.[].number' 2>/dev/null || true); do
+                gh pr close "$num" --repo "$REPO" --delete-branch \
+                  && echo "closed stale $label PR #$num" \
+                  || echo "::warning::could not close $label PR #$num"
+              done
+            done
+          }
 
           # Wait for the $wf run that THIS suite dispatched, correlated by the
           # dispatch timestamp passed as $2 (RFC3339, UTC). A workflow_dispatch
@@ -396,6 +414,9 @@ jobs:
           GH_TOKEN: ${{ secrets.CASCADE_STATE_TOKEN }}
         run: |
           source "$RUNNER_TEMP/helpers.sh"
+          # Clear any hotfix PR a crashed prior run stranded so the single-flight
+          # gate does not abort this run's hotfix stage.
+          close_open_hotfix_prs
           gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName --jq '.[].tagName' \
             | while read -r t; do gh release delete "$t" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true; done
           git fetch --tags --quiet || true
