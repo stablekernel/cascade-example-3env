@@ -8,7 +8,8 @@ ci:
             - test
             - staging
             - prod
-        cli_version: v0.6.0-dryrun.10
+        cli_version: v0.6.0-dryrun.12
+        cli_version_sha: ee53391c97bf84dca2f187d6d57f7383e87a5764
         state_token: ${{ secrets.CASCADE_STATE_TOKEN }}
         manifest_file: .github/manifest.yaml
         manifest_key: ci
@@ -56,13 +57,13 @@ ci:
             committed_by: joshua-temple
         staging:
             sha: f97c1e256788719eda09b6b54c9d2bb85980c334
-            version: v0.1.0-rc.0.hotfix.1
+            version: v0.6.0-dryrun.12.hotfix.1
             committed_at: "2026-06-28T08:18:51Z"
             committed_by: joshua-temple
             deploys:
                 app:
                     sha: a8f57c50e61aea12709d20fe6c8e15910d6bef0c
-                    version: v0.1.0-rc.0
+                    version: v0.6.0-dryrun.12
                     deployed_at: "2026-06-28T08:12:50Z"
                     deployed_by: joshua-temple
             ref: env/staging
@@ -71,12 +72,12 @@ ci:
                 - 202e1ba2162ebc7da6e919deecf22d4478364729
             previous:
                 - sha: a8f57c50e61aea12709d20fe6c8e15910d6bef0c
-                  version: v0.1.0-rc.0
+                  version: v0.6.0-dryrun.12
                   committed_at: "2026-06-28T08:12:50Z"
                   committed_by: joshua-temple
         test:
             sha: 202e1ba2162ebc7da6e919deecf22d4478364729
-            version: v0.2.0-rc.1
+            version: v0.6.0-dryrun.12
             committed_at: "2026-06-28T08:16:30Z"
             committed_by: joshua-temple
             builds:

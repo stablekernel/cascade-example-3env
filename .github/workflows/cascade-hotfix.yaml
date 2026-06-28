@@ -54,6 +54,10 @@ jobs:
     name: Plan Hotfix
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: read
     outputs:
       branch: ${{ steps.plan.outputs.branch }}
       fix_sha: ${{ steps.plan.outputs.fix_sha }}
@@ -73,9 +77,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v0.6.0-dryrun.10
+        uses: stablekernel/cascade/.github/actions/setup-cli@v0.6.0-dryrun.12
         with:
-          version: v0.6.0-dryrun.10
+          version: v0.6.0-dryrun.12
           token: ${{ github.token }}
       - name: Fetch env branches and tags
         run: |
@@ -83,6 +87,7 @@ jobs:
       - name: Plan hotfix
         id: plan
         env:
+          GH_TOKEN: ${{ github.token }}
           HOTFIX_COMMIT: ${{ github.event.inputs.commit }}
           HOTFIX_TARGET_ENV: ${{ github.event.inputs.target_env }}
           HOTFIX_DRY_RUN: ${{ github.event.inputs.dry_run }}
@@ -91,6 +96,7 @@ jobs:
             --config .github/manifest.yaml \
             --commits "$HOTFIX_COMMIT" \
             --target-env "$HOTFIX_TARGET_ENV" \
+            --repo "${{ github.repository }}" \
             --dry-run="$HOTFIX_DRY_RUN" \
             --gha-output
       - name: Surface protection suggestions
@@ -121,9 +127,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v0.6.0-dryrun.10
+        uses: stablekernel/cascade/.github/actions/setup-cli@v0.6.0-dryrun.12
         with:
-          version: v0.6.0-dryrun.10
+          version: v0.6.0-dryrun.12
           token: ${{ github.token }}
       - name: Fetch env branches and tags
         run: |
@@ -240,9 +246,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v0.6.0-dryrun.10
+        uses: stablekernel/cascade/.github/actions/setup-cli@v0.6.0-dryrun.12
         with:
-          version: v0.6.0-dryrun.10
+          version: v0.6.0-dryrun.12
           token: ${{ github.token }}
       - name: Validate manifest
         run: |
@@ -353,9 +359,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v0.6.0-dryrun.10
+        uses: stablekernel/cascade/.github/actions/setup-cli@v0.6.0-dryrun.12
         with:
-          version: v0.6.0-dryrun.10
+          version: v0.6.0-dryrun.12
           token: ${{ github.token }}
       - name: Fetch env branches and tags
         run: |
