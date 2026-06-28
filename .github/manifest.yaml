@@ -9,7 +9,6 @@ ci:
             - staging
             - prod
         cli_version: v0.6.0-rc.2
-        cli_version_sha: ee53391c97bf84dca2f187d6d57f7383e87a5764
         state_token: ${{ secrets.CASCADE_STATE_TOKEN }}
         manifest_file: .github/manifest.yaml
         manifest_key: ci
@@ -38,62 +37,3 @@ ci:
             - name: app
               workflow: .github/workflows/deploy-app.yaml
               triggers: []
-    state:
-        prod:
-            sha: 344cfc5ecc4747424a5d5bcfecfcef650adaa23f
-            version: v0.1.0
-            committed_at: "2026-06-28T18:52:26Z"
-            committed_by: joshua-temple
-            deploys:
-                app:
-                    sha: 344cfc5ecc4747424a5d5bcfecfcef650adaa23f
-                    version: v0.1.0
-                    deployed_at: "2026-06-28T18:52:26Z"
-                    deployed_by: joshua-temple
-        release:
-            sha: 344cfc5ecc4747424a5d5bcfecfcef650adaa23f
-            version: v0.1.0
-            committed_at: "2026-06-28T18:52:26Z"
-            committed_by: joshua-temple
-        staging:
-            sha: 35ebf9fd0debcf6114a7b63b8ddae53b1f79b924
-            version: v0.6.0-rc.2.hotfix.1
-            committed_at: "2026-06-28T18:57:43Z"
-            committed_by: joshua-temple
-            deploys:
-                app:
-                    sha: 344cfc5ecc4747424a5d5bcfecfcef650adaa23f
-                    version: v0.6.0-rc.2
-                    deployed_at: "2026-06-28T18:51:18Z"
-                    deployed_by: joshua-temple
-            ref: env/staging
-            base_sha: 344cfc5ecc4747424a5d5bcfecfcef650adaa23f
-            patches:
-                - a7d73201d91f0150cda0368be3d9a325e5a95db6
-            previous:
-                - sha: 344cfc5ecc4747424a5d5bcfecfcef650adaa23f
-                  version: v0.6.0-rc.2
-                  committed_at: "2026-06-28T18:51:18Z"
-                  committed_by: joshua-temple
-        test:
-            sha: a7d73201d91f0150cda0368be3d9a325e5a95db6
-            version: v0.6.0-rc.2
-            committed_at: "2026-06-28T18:55:16Z"
-            committed_by: joshua-temple
-            builds:
-                app:
-                    sha: a7d73201d91f0150cda0368be3d9a325e5a95db6
-                    artifact_id: app-a7d73201d91f0150cda0368be3d9a325e5a95db6
-                base:
-                    sha: a7d73201d91f0150cda0368be3d9a325e5a95db6
-                    artifact_id: base-a7d73201d91f0150cda0368be3d9a325e5a95db6
-            deploys:
-                app:
-                    sha: a7d73201d91f0150cda0368be3d9a325e5a95db6
-                    deployed_at: "2026-06-28T18:55:16Z"
-                    deployed_by: joshua-temple
-    latest_release:
-        version: v0.1.0
-        sha: 344cfc5ecc4747424a5d5bcfecfcef650adaa23f
-        released_on: "2026-06-28T18:52:26Z"
-        released_by: joshua-temple
