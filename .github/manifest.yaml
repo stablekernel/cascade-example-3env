@@ -1,90 +1,99 @@
 ci:
-  config:
-    schema_version: 1
-    trunk_branch: main
-    triggers:
-      - src/**
-    environments:
-      - test
-      - staging
-      - prod
-    cli_version: v0.8.1-dryrun.29
-    cli_version_sha: daa9b93ec49025c22735145d6d78ff4afd14933d
-    state_token: ${{ secrets.CASCADE_STATE_TOKEN }}
-    manifest_file: .github/manifest.yaml
-    manifest_key: ci
-    validate:
-      workflow: .github/workflows/validate.yaml
-      triggers:
-        - src/**
-      on_failure: abort
-      retries: 1
-    builds:
-      - name: base
-        workflow: .github/workflows/build-base.yaml
-        triggers: []
-        retries: 2
-        secrets: inherit
-        permissions:
-          contents: read
-          id-token: write
-      - name: app
-        workflow: .github/workflows/build-app.yaml
-        triggers: []
-        depends_on:
-          - base
-        auto_commits: true
-    deploys:
-      - name: app
-        workflow: .github/workflows/deploy-app.yaml
-        triggers: []
-  state:
-    prod:
-      sha: 7a55a93e89720a460d69aefa6c79159b8096e49b
-      version: v0.1.0
-      committed_at: "2026-07-05T18:27:37Z"
-      committed_by: joshua-temple
-      deploys:
-        app:
-          sha: 7a55a93e89720a460d69aefa6c79159b8096e49b
-          version: v0.1.0
-          deployed_at: "2026-07-05T18:27:37Z"
-          deployed_by: joshua-temple
-    release:
-      sha: 7a55a93e89720a460d69aefa6c79159b8096e49b
-      version: v0.1.0
-      committed_at: "2026-07-05T18:27:37Z"
-      committed_by: joshua-temple
-    staging:
-      sha: 7a55a93e89720a460d69aefa6c79159b8096e49b
-      version: v0.1.0-rc.0
-      committed_at: "2026-07-05T18:26:29Z"
-      committed_by: joshua-temple
-      deploys:
-        app:
-          sha: 7a55a93e89720a460d69aefa6c79159b8096e49b
-          version: v0.1.0-rc.0
-          deployed_at: "2026-07-05T18:26:29Z"
-          deployed_by: joshua-temple
-    test:
-      sha: e295a562e149624228efb836f4aff95979ec8641
-      version: v0.2.0-rc.1
-      committed_at: "2026-07-05T18:30:21Z"
-      committed_by: joshua-temple
-      builds:
-        app:
-          sha: e295a562e149624228efb836f4aff95979ec8641
-          artifact_id: app-e295a562e149624228efb836f4aff95979ec8641
-        base:
-          sha: e295a562e149624228efb836f4aff95979ec8641
-          artifact_id: base-e295a562e149624228efb836f4aff95979ec8641
-      deploys:
-        app:
-          sha: e295a562e149624228efb836f4aff95979ec8641
-          deployed_at: "2026-07-05T18:30:21Z"
-          deployed_by: joshua-temple
-  latest_release:
-    version: v0.1.0
-    sha: 7a55a93e89720a460d69aefa6c79159b8096e49b
-    released_on: "2026-07-05T18:27:37Z"
-    released_by: joshua-temple
+    config:
+        schema_version: 1
+        trunk_branch: main
+        triggers:
+            - src/**
+        environments:
+            - test
+            - staging
+            - prod
+        cli_version: v0.8.1-dryrun.29
+        cli_version_sha: daa9b93ec49025c22735145d6d78ff4afd14933d
+        state_token: ${{ secrets.CASCADE_STATE_TOKEN }}
+        manifest_file: .github/manifest.yaml
+        manifest_key: ci
+        validate:
+            workflow: .github/workflows/validate.yaml
+            triggers:
+                - src/**
+            on_failure: abort
+            retries: 1
+        builds:
+            - name: base
+              workflow: .github/workflows/build-base.yaml
+              triggers: []
+              retries: 2
+              secrets: inherit
+              permissions:
+                contents: read
+                id-token: write
+            - name: app
+              workflow: .github/workflows/build-app.yaml
+              triggers: []
+              depends_on:
+                - base
+              auto_commits: true
+        deploys:
+            - name: app
+              workflow: .github/workflows/deploy-app.yaml
+              triggers: []
+    state:
+        prod:
+            sha: 7a55a93e89720a460d69aefa6c79159b8096e49b
+            version: v0.1.0
+            committed_at: "2026-07-05T18:27:37Z"
+            committed_by: joshua-temple
+            deploys:
+                app:
+                    sha: 7a55a93e89720a460d69aefa6c79159b8096e49b
+                    version: v0.1.0
+                    deployed_at: "2026-07-05T18:27:37Z"
+                    deployed_by: joshua-temple
+        release:
+            sha: 7a55a93e89720a460d69aefa6c79159b8096e49b
+            version: v0.1.0
+            committed_at: "2026-07-05T18:27:37Z"
+            committed_by: joshua-temple
+        staging:
+            sha: 18fbe903b722e68233fa35c3cf6509f2ceabf6a1
+            version: v0.1.0-rc.0.hotfix.1
+            committed_at: "2026-07-05T18:33:06Z"
+            committed_by: joshua-temple
+            deploys:
+                app:
+                    sha: 7a55a93e89720a460d69aefa6c79159b8096e49b
+                    version: v0.1.0-rc.0
+                    deployed_at: "2026-07-05T18:26:29Z"
+                    deployed_by: joshua-temple
+            ref: env/staging
+            base_sha: 7a55a93e89720a460d69aefa6c79159b8096e49b
+            patches:
+                - e295a562e149624228efb836f4aff95979ec8641
+            previous:
+                - sha: 7a55a93e89720a460d69aefa6c79159b8096e49b
+                  version: v0.1.0-rc.0
+                  committed_at: "2026-07-05T18:26:29Z"
+                  committed_by: joshua-temple
+        test:
+            sha: e295a562e149624228efb836f4aff95979ec8641
+            version: v0.2.0-rc.1
+            committed_at: "2026-07-05T18:30:21Z"
+            committed_by: joshua-temple
+            builds:
+                app:
+                    sha: e295a562e149624228efb836f4aff95979ec8641
+                    artifact_id: app-e295a562e149624228efb836f4aff95979ec8641
+                base:
+                    sha: e295a562e149624228efb836f4aff95979ec8641
+                    artifact_id: base-e295a562e149624228efb836f4aff95979ec8641
+            deploys:
+                app:
+                    sha: e295a562e149624228efb836f4aff95979ec8641
+                    deployed_at: "2026-07-05T18:30:21Z"
+                    deployed_by: joshua-temple
+    latest_release:
+        version: v0.1.0
+        sha: 7a55a93e89720a460d69aefa6c79159b8096e49b
+        released_on: "2026-07-05T18:27:37Z"
+        released_by: joshua-temple
