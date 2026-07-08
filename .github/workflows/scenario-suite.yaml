@@ -466,6 +466,29 @@ jobs:
           fi
           git fetch origin main --quiet
 
+          # Scrub any abort-path validate sentinel a crashed prior run stranded on
+          # trunk. Stage 1 drives the happy path and expects a clean validate, so a
+          # lingering .cascade-validate-fail file would fail it before it can cut a
+          # draft. Remove and push only when the file is actually present, retrying
+          # if trunk advances under us.
+          git reset --hard origin/main >/dev/null
+          if git cat-file -e "origin/main:.cascade-validate-fail" 2>/dev/null; then
+            for attempt in 1 2 3 4 5; do
+              git rm -f --ignore-unmatch .cascade-validate-fail >/dev/null
+              git commit --no-gpg-sign -m "chore: clear leftover validate sentinel"
+              git push origin main && break
+              echo "sentinel scrub push attempt ${attempt} rejected; refreshing trunk"
+              git fetch origin main --quiet
+              git reset --hard origin/main >/dev/null
+              git cat-file -e "origin/main:.cascade-validate-fail" 2>/dev/null || break
+              sleep "$((attempt * 5))"
+            done
+            git fetch origin main --quiet
+            echo "leftover validate sentinel scrubbed"
+          else
+            echo "no leftover validate sentinel present"
+          fi
+
           # Reset every env branch the suite drives back to the trunk tip so the
           # hotfix cherry-pick is deterministic on each re-run. Without this,
           # env/staging accumulates prior-run hotfix commits and manifest/app
