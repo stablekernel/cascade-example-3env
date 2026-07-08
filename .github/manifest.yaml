@@ -41,6 +41,6 @@ ci:
   state:
     test:
       sha: 9aa613bccb126d600076fba208daf14533d01f2b
-      version: v0.1.0-rc.0
+      version: v0.12.0-rc.1
       committed_at: "2026-07-08T19:23:44Z"
       committed_by: joshua-temple
