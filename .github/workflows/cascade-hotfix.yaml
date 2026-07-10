@@ -39,7 +39,7 @@ on:
   pull_request:
     types: [closed]
     branches:
-      - 'env/**'
+      - 'env/*'
 
 permissions:
   contents: read
@@ -77,9 +77,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v0.14.0-dryrun.50
+        uses: stablekernel/cascade/.github/actions/setup-cli@v0.14.0-dryrun.51
         with:
-          version: v0.14.0-dryrun.50
+          version: v0.14.0-dryrun.51
           token: ${{ github.token }}
       - name: Fetch env branches and tags
         run: |
@@ -127,9 +127,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v0.14.0-dryrun.50
+        uses: stablekernel/cascade/.github/actions/setup-cli@v0.14.0-dryrun.51
         with:
-          version: v0.14.0-dryrun.50
+          version: v0.14.0-dryrun.51
           token: ${{ github.token }}
       - name: Fetch env branches and tags
         run: |
@@ -246,9 +246,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v0.14.0-dryrun.50
+        uses: stablekernel/cascade/.github/actions/setup-cli@v0.14.0-dryrun.51
         with:
-          version: v0.14.0-dryrun.50
+          version: v0.14.0-dryrun.51
           token: ${{ github.token }}
       - name: Validate manifest
         run: |
@@ -359,9 +359,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v0.14.0-dryrun.50
+        uses: stablekernel/cascade/.github/actions/setup-cli@v0.14.0-dryrun.51
         with:
-          version: v0.14.0-dryrun.50
+          version: v0.14.0-dryrun.51
           token: ${{ github.token }}
       - name: Fetch env branches and tags
         run: |
