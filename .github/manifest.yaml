@@ -1,90 +1,40 @@
 ci:
-  config:
-    schema_version: 1
-    trunk_branch: main
-    triggers:
-      - src/**
-    environments:
-      - test
-      - staging
-      - prod
-    cli_version: v0.14.0-dryrun.53
-    cli_version_sha: 2df51207f56662932c323656f2cb7ba565507e51
-    state_token: ${{ secrets.CASCADE_STATE_TOKEN }}
-    manifest_file: .github/manifest.yaml
-    manifest_key: ci
-    validate:
-      workflow: .github/workflows/validate.yaml
-      triggers:
-        - src/**
-      on_failure: abort
-      retries: 1
-    builds:
-      - name: base
-        workflow: .github/workflows/build-base.yaml
-        triggers: []
-        retries: 2
-        secrets: inherit
-        permissions:
-          contents: read
-          id-token: write
-      - name: app
-        workflow: .github/workflows/build-app.yaml
-        triggers: []
-        depends_on:
-          - base
-        auto_commits: true
-    deploys:
-      - name: app
-        workflow: .github/workflows/deploy-app.yaml
-        triggers: []
-  state:
-    prod:
-      sha: e6cf3d6fa236abb7dd427aea3c427d811dc9327d
-      version: v0.1.0
-      committed_at: "2026-07-10T09:26:28Z"
-      committed_by: joshua-temple
-      deploys:
-        app:
-          sha: e6cf3d6fa236abb7dd427aea3c427d811dc9327d
-          version: v0.1.0
-          deployed_at: "2026-07-10T09:26:28Z"
-          deployed_by: joshua-temple
-    release:
-      sha: e6cf3d6fa236abb7dd427aea3c427d811dc9327d
-      version: v0.1.0
-      committed_at: "2026-07-10T09:26:28Z"
-      committed_by: joshua-temple
-    staging:
-      sha: e6cf3d6fa236abb7dd427aea3c427d811dc9327d
-      version: v0.14.0-dryrun.53
-      committed_at: "2026-07-10T09:25:11Z"
-      committed_by: joshua-temple
-      deploys:
-        app:
-          sha: e6cf3d6fa236abb7dd427aea3c427d811dc9327d
-          version: v0.14.0-dryrun.53
-          deployed_at: "2026-07-10T09:25:11Z"
-          deployed_by: joshua-temple
-    test:
-      sha: a74acb85cd93194fab381d79518c4a7668413276
-      version: v0.14.0-dryrun.53
-      committed_at: "2026-07-10T09:29:14Z"
-      committed_by: joshua-temple
-      builds:
-        app:
-          sha: a74acb85cd93194fab381d79518c4a7668413276
-          artifact_id: app-a74acb85cd93194fab381d79518c4a7668413276
-        base:
-          sha: a74acb85cd93194fab381d79518c4a7668413276
-          artifact_id: base-a74acb85cd93194fab381d79518c4a7668413276
-      deploys:
-        app:
-          sha: a74acb85cd93194fab381d79518c4a7668413276
-          deployed_at: "2026-07-10T09:29:14Z"
-          deployed_by: joshua-temple
-  latest_release:
-    version: v0.1.0
-    sha: e6cf3d6fa236abb7dd427aea3c427d811dc9327d
-    released_on: "2026-07-10T09:26:28Z"
-    released_by: joshua-temple
+    config:
+        schema_version: 1
+        trunk_branch: main
+        triggers:
+            - src/**
+        environments:
+            - test
+            - staging
+            - prod
+        cli_version: v0.14.0-dryrun.53
+        cli_version_sha: 2df51207f56662932c323656f2cb7ba565507e51
+        state_token: ${{ secrets.CASCADE_STATE_TOKEN }}
+        manifest_file: .github/manifest.yaml
+        manifest_key: ci
+        validate:
+            workflow: .github/workflows/validate.yaml
+            triggers:
+                - src/**
+            on_failure: abort
+            retries: 1
+        builds:
+            - name: base
+              workflow: .github/workflows/build-base.yaml
+              triggers: []
+              retries: 2
+              secrets: inherit
+              permissions:
+                contents: read
+                id-token: write
+            - name: app
+              workflow: .github/workflows/build-app.yaml
+              triggers: []
+              depends_on:
+                - base
+              auto_commits: true
+        deploys:
+            - name: app
+              workflow: .github/workflows/deploy-app.yaml
+              triggers: []
