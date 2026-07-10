@@ -1,40 +1,58 @@
 ci:
-    config:
-        schema_version: 1
-        trunk_branch: main
-        triggers:
-            - src/**
-        environments:
-            - test
-            - staging
-            - prod
-        cli_version: v0.14.0-dryrun.53
-        cli_version_sha: 2df51207f56662932c323656f2cb7ba565507e51
-        state_token: ${{ secrets.CASCADE_STATE_TOKEN }}
-        manifest_file: .github/manifest.yaml
-        manifest_key: ci
-        validate:
-            workflow: .github/workflows/validate.yaml
-            triggers:
-                - src/**
-            on_failure: abort
-            retries: 1
-        builds:
-            - name: base
-              workflow: .github/workflows/build-base.yaml
-              triggers: []
-              retries: 2
-              secrets: inherit
-              permissions:
-                contents: read
-                id-token: write
-            - name: app
-              workflow: .github/workflows/build-app.yaml
-              triggers: []
-              depends_on:
-                - base
-              auto_commits: true
-        deploys:
-            - name: app
-              workflow: .github/workflows/deploy-app.yaml
-              triggers: []
+  config:
+    schema_version: 1
+    trunk_branch: main
+    triggers:
+      - src/**
+    environments:
+      - test
+      - staging
+      - prod
+    cli_version: v0.14.0-dryrun.53
+    cli_version_sha: 2df51207f56662932c323656f2cb7ba565507e51
+    state_token: ${{ secrets.CASCADE_STATE_TOKEN }}
+    manifest_file: .github/manifest.yaml
+    manifest_key: ci
+    validate:
+      workflow: .github/workflows/validate.yaml
+      triggers:
+        - src/**
+      on_failure: abort
+      retries: 1
+    builds:
+      - name: base
+        workflow: .github/workflows/build-base.yaml
+        triggers: []
+        retries: 2
+        secrets: inherit
+        permissions:
+          contents: read
+          id-token: write
+      - name: app
+        workflow: .github/workflows/build-app.yaml
+        triggers: []
+        depends_on:
+          - base
+        auto_commits: true
+    deploys:
+      - name: app
+        workflow: .github/workflows/deploy-app.yaml
+        triggers: []
+  state:
+    test:
+      sha: e6cf3d6fa236abb7dd427aea3c427d811dc9327d
+      version: v0.1.0-rc.0
+      committed_at: "2026-07-10T09:23:25Z"
+      committed_by: joshua-temple
+      deploys:
+        app:
+          sha: e6cf3d6fa236abb7dd427aea3c427d811dc9327d
+          deployed_at: "2026-07-10T09:23:25Z"
+          deployed_by: joshua-temple
+      builds:
+        base:
+          sha: e6cf3d6fa236abb7dd427aea3c427d811dc9327d
+          artifact_id: base-e6cf3d6fa236abb7dd427aea3c427d811dc9327d
+        app:
+          sha: e6cf3d6fa236abb7dd427aea3c427d811dc9327d
+          artifact_id: app-e6cf3d6fa236abb7dd427aea3c427d811dc9327d
