@@ -57,18 +57,18 @@ ci:
       committed_by: joshua-temple
     staging:
       sha: 3fe19f8be05fff3af32a4ff2d6a8097bf4aad353
-      version: v0.1.0-rc.0
+      version: v0.15.0-rc.0
       committed_at: "2026-07-12T06:51:49Z"
       committed_by: joshua-temple
       deploys:
         app:
           sha: 3fe19f8be05fff3af32a4ff2d6a8097bf4aad353
-          version: v0.1.0-rc.0
+          version: v0.15.0-rc.0
           deployed_at: "2026-07-12T06:51:49Z"
           deployed_by: joshua-temple
     test:
       sha: 77f492b0900c099053b70f3ae60c0a935fead8ef
-      version: v0.2.0-rc.0
+      version: v0.15.0-rc.0
       committed_at: "2026-07-12T06:54:05Z"
       committed_by: joshua-temple
       builds:
