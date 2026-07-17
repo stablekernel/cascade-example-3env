@@ -1,58 +1,70 @@
 ci:
-  config:
-    schema_version: 1
-    trunk_branch: main
-    triggers:
-      - src/**
-    environments:
-      - test
-      - staging
-      - prod
-    cli_version: v0.16.3-rc.1
-    cli_version_sha: 708cd047998303cc463701d46233db3e4231d316
-    state_token: ${{ secrets.CASCADE_STATE_TOKEN }}
-    manifest_file: .github/manifest.yaml
-    manifest_key: ci
-    validate:
-      workflow: .github/workflows/validate.yaml
-      triggers:
-        - src/**
-      on_failure: abort
-      retries: 1
-    builds:
-      - name: base
-        workflow: .github/workflows/build-base.yaml
-        triggers: []
-        retries: 2
-        secrets: inherit
-        permissions:
-          contents: read
-          id-token: write
-      - name: app
-        workflow: .github/workflows/build-app.yaml
-        triggers: []
-        depends_on:
-          - base
-        auto_commits: true
-    deploys:
-      - name: app
-        workflow: .github/workflows/deploy-app.yaml
-        triggers: []
-  state:
-    test:
-      sha: ed5c3b26eeff65779e180d9e333b0dab205a7e85
-      version: v0.1.0-rc.0
-      committed_at: "2026-07-17T08:31:45Z"
-      committed_by: joshua-temple
-      deploys:
-        app:
-          sha: ed5c3b26eeff65779e180d9e333b0dab205a7e85
-          deployed_at: "2026-07-17T08:31:45Z"
-          deployed_by: joshua-temple
-      builds:
-        base:
-          sha: ed5c3b26eeff65779e180d9e333b0dab205a7e85
-          artifact_id: base-ed5c3b26eeff65779e180d9e333b0dab205a7e85
-        app:
-          sha: ed5c3b26eeff65779e180d9e333b0dab205a7e85
-          artifact_id: app-ed5c3b26eeff65779e180d9e333b0dab205a7e85
+    config:
+        schema_version: 1
+        trunk_branch: main
+        triggers:
+            - src/**
+        environments:
+            - test
+            - staging
+            - prod
+        cli_version: v0.16.3-rc.1
+        cli_version_sha: 708cd047998303cc463701d46233db3e4231d316
+        state_token: ${{ secrets.CASCADE_STATE_TOKEN }}
+        manifest_file: .github/manifest.yaml
+        manifest_key: ci
+        validate:
+            workflow: .github/workflows/validate.yaml
+            triggers:
+                - src/**
+            on_failure: abort
+            retries: 1
+        builds:
+            - name: base
+              workflow: .github/workflows/build-base.yaml
+              triggers: []
+              retries: 2
+              secrets: inherit
+              permissions:
+                contents: read
+                id-token: write
+            - name: app
+              workflow: .github/workflows/build-app.yaml
+              triggers: []
+              depends_on:
+                - base
+              auto_commits: true
+        deploys:
+            - name: app
+              workflow: .github/workflows/deploy-app.yaml
+              triggers: []
+    state:
+        prod: {}
+        staging:
+            sha: ed5c3b26eeff65779e180d9e333b0dab205a7e85
+            version: v0.1.0-rc.0
+            committed_at: "2026-07-17T08:33:32Z"
+            committed_by: joshua-temple
+            deploys:
+                app:
+                    sha: ed5c3b26eeff65779e180d9e333b0dab205a7e85
+                    version: v0.1.0-rc.0
+                    deployed_at: "2026-07-17T08:33:32Z"
+                    deployed_by: joshua-temple
+        test:
+            sha: ed5c3b26eeff65779e180d9e333b0dab205a7e85
+            version: v0.1.0-rc.0
+            committed_at: "2026-07-17T08:31:45Z"
+            committed_by: joshua-temple
+            builds:
+                app:
+                    sha: ed5c3b26eeff65779e180d9e333b0dab205a7e85
+                    artifact_id: app-ed5c3b26eeff65779e180d9e333b0dab205a7e85
+                base:
+                    sha: ed5c3b26eeff65779e180d9e333b0dab205a7e85
+                    artifact_id: base-ed5c3b26eeff65779e180d9e333b0dab205a7e85
+            deploys:
+                app:
+                    sha: ed5c3b26eeff65779e180d9e333b0dab205a7e85
+                    deployed_at: "2026-07-17T08:31:45Z"
+                    deployed_by: joshua-temple
