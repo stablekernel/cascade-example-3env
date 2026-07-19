@@ -52,10 +52,10 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v0.16.4-rc.0
+        uses: stablekernel/cascade/.github/actions/setup-cli@v0.16.5-rc.1
         with:
           token: ${{ secrets.CASCADE_STATE_TOKEN }}
-          version: v0.16.4-rc.0
+          version: v0.16.5-rc.1
       - name: Run Setup
         id: setup
         env:
@@ -85,10 +85,10 @@ jobs:
 
   build-base:
     name: Build (base)
-    needs: [setup, validate]
+    needs: [setup, validate, validate-retry-1]
     if: |
       needs.setup.outputs.run_build_base == 'true' &&
-      needs.validate.result == 'success'
+      (needs.validate.result == 'success' || needs.validate-retry-1.result == 'success')
     permissions:
       contents: read
       id-token: write
@@ -126,11 +126,11 @@ jobs:
 
   build-app:
     name: Build (app)
-    needs: [setup, validate, build-base]
+    needs: [setup, validate, validate-retry-1, build-base, build-base-retry-1, build-base-retry-2]
     if: |
       needs.setup.outputs.run_build_app == 'true' &&
-      needs.validate.result == 'success' &&
-      needs.build-base.result == 'success'
+      (needs.validate.result == 'success' || needs.validate-retry-1.result == 'success') &&
+      (needs.build-base.result == 'success' || needs.build-base-retry-1.result == 'success' || needs.build-base-retry-2.result == 'success')
     uses: ./.github/workflows/build-app.yaml
     with:
       environment: ${{ github.event.inputs.environment || 'test' }}
@@ -138,10 +138,10 @@ jobs:
 
   deploy-app:
     name: Deploy (app)
-    needs: [setup, validate]
+    needs: [setup, validate, validate-retry-1]
     if: |
       needs.setup.outputs.run_deploy_app == 'true' &&
-      needs.validate.result == 'success'
+      (needs.validate.result == 'success' || needs.validate-retry-1.result == 'success')
     uses: ./.github/workflows/deploy-app.yaml
     with:
       environment: ${{ github.event.inputs.environment || 'test' }}
@@ -196,10 +196,10 @@ jobs:
             echo "_No outputs produced_" >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v0.16.4-rc.0
+        uses: stablekernel/cascade/.github/actions/setup-cli@v0.16.5-rc.1
         with:
           token: ${{ secrets.CASCADE_STATE_TOKEN }}
-          version: v0.16.4-rc.0
+          version: v0.16.5-rc.1
       - name: Generate Changelog
         id: changelog
         env:
