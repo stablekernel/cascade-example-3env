@@ -67,9 +67,9 @@ ci:
           deployed_at: "2026-07-20T06:22:56Z"
           deployed_by: joshua-temple
     test:
-      sha: 2bd0da03adb41e945b292687a71978f3b086aa01
-      version: v0.2.0-rc.0
-      committed_at: "2026-07-20T06:25:17Z"
+      sha: 24f110257d0e1ea59ab54d8c544bbe6c66777850
+      version: v0.2.0-rc.1
+      committed_at: "2026-07-20T06:26:39Z"
       committed_by: joshua-temple
   latest_release:
     version: v0.1.0
