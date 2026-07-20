@@ -52,10 +52,10 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v0.16.6-rc.0
+        uses: stablekernel/cascade/.github/actions/setup-cli@v0.16.6-dryrun.82
         with:
           token: ${{ secrets.CASCADE_STATE_TOKEN }}
-          version: v0.16.6-rc.0
+          version: v0.16.6-dryrun.82
       - name: Run Setup
         id: setup
         env:
@@ -77,7 +77,7 @@ jobs:
   validate-retry-1:
     name: Validate (validate) - Retry 1
     needs: [setup, validate]
-    if: needs.validate.result == 'failure'
+    if: ${{ !cancelled() && needs.validate.result == 'failure' }}
     uses: ./.github/workflows/validate.yaml
     with:
       environment: ${{ github.event.inputs.environment || 'test' }}
@@ -87,6 +87,7 @@ jobs:
     name: Build (base)
     needs: [setup, validate, validate-retry-1]
     if: |
+      !cancelled() &&
       needs.setup.outputs.run_build_base == 'true' &&
       (needs.validate.result == 'success' || needs.validate-retry-1.result == 'success')
     permissions:
@@ -101,7 +102,7 @@ jobs:
   build-base-retry-1:
     name: Build (base) - Retry 1
     needs: [setup, build-base]
-    if: needs.build-base.result == 'failure'
+    if: ${{ !cancelled() && needs.build-base.result == 'failure' }}
     permissions:
       contents: read
       id-token: write
@@ -114,7 +115,7 @@ jobs:
   build-base-retry-2:
     name: Build (base) - Retry 2
     needs: [setup, build-base-retry-1]
-    if: needs.build-base-retry-1.result == 'failure'
+    if: ${{ !cancelled() && needs.build-base-retry-1.result == 'failure' }}
     permissions:
       contents: read
       id-token: write
@@ -128,6 +129,7 @@ jobs:
     name: Build (app)
     needs: [setup, validate, validate-retry-1, build-base, build-base-retry-1, build-base-retry-2]
     if: |
+      !cancelled() &&
       needs.setup.outputs.run_build_app == 'true' &&
       (needs.validate.result == 'success' || needs.validate-retry-1.result == 'success') &&
       (needs.build-base.result == 'success' || needs.build-base-retry-1.result == 'success' || needs.build-base-retry-2.result == 'success')
@@ -140,6 +142,7 @@ jobs:
     name: Deploy (app)
     needs: [setup, validate, validate-retry-1]
     if: |
+      !cancelled() &&
       needs.setup.outputs.run_deploy_app == 'true' &&
       (needs.validate.result == 'success' || needs.validate-retry-1.result == 'success')
     uses: ./.github/workflows/deploy-app.yaml
@@ -196,10 +199,10 @@ jobs:
             echo "_No outputs produced_" >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Setup CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v0.16.6-rc.0
+        uses: stablekernel/cascade/.github/actions/setup-cli@v0.16.6-dryrun.82
         with:
           token: ${{ secrets.CASCADE_STATE_TOKEN }}
-          version: v0.16.6-rc.0
+          version: v0.16.6-dryrun.82
       - name: Generate Changelog
         id: changelog
         env:
