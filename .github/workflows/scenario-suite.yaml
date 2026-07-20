@@ -119,11 +119,15 @@ jobs:
           r1if=$(yq '.jobs."build-base-retry-1".if' "$ORCH")
           echo "$r1if" | grep -q "needs.build-base.result == 'failure'" \
             || gfail "build-base-retry-1.if must re-invoke on build-base failure, got '$r1if'"
+          echo "$r1if" | grep -q '!cancelled()' \
+            || gfail "build-base-retry-1.if must carry the !cancelled() status gate, got '$r1if'"
           yq '.jobs."build-base-retry-2".needs[]' "$ORCH" | grep -qx 'build-base-retry-1' \
             || gfail "build-base-retry-2.needs must contain build-base-retry-1"
           r2if=$(yq '.jobs."build-base-retry-2".if' "$ORCH")
           echo "$r2if" | grep -q "needs.build-base-retry-1.result == 'failure'" \
             || gfail "build-base-retry-2.if must re-invoke on retry-1 failure, got '$r2if'"
+          echo "$r2if" | grep -q '!cancelled()' \
+            || gfail "build-base-retry-2.if must carry the !cancelled() status gate, got '$r2if'"
 
           echo "gen-time wiring checks passed"
 
