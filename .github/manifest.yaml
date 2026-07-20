@@ -77,7 +77,7 @@ ci:
                   committed_by: joshua-temple
         test:
             sha: 8a888b6cfd8b52e84d1d0afc3d1a3936d6fe6c5c
-            version: v0.17.0-rc.1
+            version: v0.16.6-rc.0
             committed_at: "2026-07-20T08:08:41Z"
             committed_by: joshua-temple
     latest_release:
