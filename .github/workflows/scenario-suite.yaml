@@ -160,7 +160,7 @@ jobs:
           token: ${{ secrets.CASCADE_STATE_TOKEN }}
 
       - name: Setup cascade CLI
-        uses: stablekernel/cascade/.github/actions/setup-cli@v1.1.1
+        uses: stablekernel/cascade/.github/actions/setup-cli@v1.1.2
         with:
           token: ${{ secrets.CASCADE_STATE_TOKEN }}
           version: ${{ inputs.cascade_version || 'v0.8.0' }}
