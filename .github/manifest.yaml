@@ -39,7 +39,22 @@ ci:
               workflow: .github/workflows/deploy-app.yaml
               triggers: []
     state:
-        prod: {}
+        prod:
+            sha: 57cbda51e54eec5f96d3a7d831a0da9162f3206a
+            version: v0.1.0
+            committed_at: "2026-08-16T07:17:30Z"
+            committed_by: joshua-temple
+            deploys:
+                app:
+                    sha: 57cbda51e54eec5f96d3a7d831a0da9162f3206a
+                    version: v0.1.0
+                    deployed_at: "2026-08-16T07:17:30Z"
+                    deployed_by: joshua-temple
+        release:
+            sha: 57cbda51e54eec5f96d3a7d831a0da9162f3206a
+            version: v0.1.0
+            committed_at: "2026-08-16T07:17:30Z"
+            committed_by: joshua-temple
         staging:
             sha: 57cbda51e54eec5f96d3a7d831a0da9162f3206a
             version: v0.1.0-rc.0
@@ -68,3 +83,8 @@ ci:
                     sha: 57cbda51e54eec5f96d3a7d831a0da9162f3206a
                     deployed_at: "2026-08-16T07:15:26Z"
                     deployed_by: joshua-temple
+    latest_release:
+        version: v0.1.0
+        sha: 57cbda51e54eec5f96d3a7d831a0da9162f3206a
+        released_on: "2026-08-16T07:17:30Z"
+        released_by: joshua-temple
