@@ -67,21 +67,21 @@ ci:
           deployed_at: "2026-10-31T07:09:12Z"
           deployed_by: joshua-temple
     test:
-      sha: 2949437862cfa9a1635af119c56526fc16a17def
-      version: v0.2.0-rc.0
-      committed_at: "2026-10-31T07:11:45Z"
+      sha: 6bea8f3fcb5ccd6313d89e8adf7d14ba5dae0d5f
+      version: v0.2.0-rc.1
+      committed_at: "2026-10-31T07:13:13Z"
       committed_by: joshua-temple
       builds:
         app:
-          sha: 7f7b25c771834172762de60fe555415bf1e35070
-          artifact_id: app-7f7b25c771834172762de60fe555415bf1e35070
+          sha: 6bea8f3fcb5ccd6313d89e8adf7d14ba5dae0d5f
+          artifact_id: app-6bea8f3fcb5ccd6313d89e8adf7d14ba5dae0d5f
         base:
-          sha: 7f7b25c771834172762de60fe555415bf1e35070
-          artifact_id: base-7f7b25c771834172762de60fe555415bf1e35070
+          sha: 6bea8f3fcb5ccd6313d89e8adf7d14ba5dae0d5f
+          artifact_id: base-6bea8f3fcb5ccd6313d89e8adf7d14ba5dae0d5f
       deploys:
         app:
-          sha: 7f7b25c771834172762de60fe555415bf1e35070
-          deployed_at: "2026-10-31T07:08:21Z"
+          sha: 6bea8f3fcb5ccd6313d89e8adf7d14ba5dae0d5f
+          deployed_at: "2026-10-31T07:13:13Z"
           deployed_by: joshua-temple
   latest_release:
     version: v0.1.0
