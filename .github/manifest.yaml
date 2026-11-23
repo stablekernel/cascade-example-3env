@@ -57,13 +57,13 @@ ci:
             committed_by: joshua-temple
         staging:
             sha: 60b5d297e21605490e42d5b556d2c8c2dfcc222b
-            version: v0.1.0-rc.0.hotfix.1
+            version: v1.1.3-rc.3.hotfix.1
             committed_at: "2026-11-23T07:18:30Z"
             committed_by: joshua-temple
             deploys:
                 app:
                     sha: 75ea4d20ceac14cf962a314021f61f087313b677
-                    version: v0.1.0-rc.0
+                    version: v1.1.3-rc.3
                     deployed_at: "2026-11-23T07:11:53Z"
                     deployed_by: joshua-temple
             ref: env/staging
@@ -72,12 +72,12 @@ ci:
                 - c8d386295d100e64a6805a4175ca2c898fec5f46
             previous:
                 - sha: 75ea4d20ceac14cf962a314021f61f087313b677
-                  version: v0.1.0-rc.0
+                  version: v1.1.3-rc.3
                   committed_at: "2026-11-23T07:11:53Z"
                   committed_by: joshua-temple
         test:
             sha: c8d386295d100e64a6805a4175ca2c898fec5f46
-            version: v0.2.0-rc.1
+            version: v1.1.3-rc.3
             committed_at: "2026-11-23T07:15:58Z"
             committed_by: joshua-temple
             builds:
